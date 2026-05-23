@@ -91,61 +91,20 @@ jobs:
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # ── Step 8: Build ARM64 image (no QEMU) ───────────
-      - name: Build image
-        run: |
-          echo "=== Tags to build ==="
-          echo "${{ steps.meta.outputs.tags }}"
-          echo ""
-          echo "=== Labels ==="
-          echo "${{ steps.meta.outputs.labels }}"
-          
-          # Convert tags list to -t flags
-          TAG_ARGS=""
-          while IFS= read -r tag; do
-            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.meta.outputs.tags }}"
-          
-          echo ""
-          echo "=== Building with args: $TAG_ARGS ==="
-          docker buildx build \
-            --platform linux/arm64 \
-            --file Dockerfile.release \
-            $TAG_ARGS \
-            --load \
-            .
+      # ── Step 8: Build and push ARM64 image ───────────
+      # Use build-push-action for reliable tag handling and push
+      # No QEMU needed because binary is pre-compiled
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.release
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-      # ── Step 9: Verify image locally ───────────────────
-      - name: Verify image
-        run: |
-          PRIMARY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
-          echo "=== Verifying image: $PRIMARY_TAG ==="
-          docker image ls "$PRIMARY_TAG"
-          echo ""
-          echo "=== Architecture ==="
-          docker inspect "$PRIMARY_TAG" --format='{{.Os}}/{{.Architecture}}'
-          echo ""
-          echo "=== Image size ==="
-          docker inspect "$PRIMARY_TAG" --format='{{.Size}}' | numfmt --to=iec
-
-      # ── Step 10: Push to GHCR ─────────────────────────
-      - name: Push image
-        run: |
-          echo "=== Pushing all tags ==="
-          
-          TAG_ARGS=""
-          while IFS= read -r tag; do
-            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.meta.outputs.tags }}"
-          
-          docker buildx build \
-            --platform linux/arm64 \
-            --file Dockerfile.release \
-            $TAG_ARGS \
-            --push \
-            .
-
-      # ── Step 11: Verify push ───────────────────────────
+      # ── Step 9: Verify push ───────────────────────────
       - name: Verify push
         run: |
           PRIMARY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
