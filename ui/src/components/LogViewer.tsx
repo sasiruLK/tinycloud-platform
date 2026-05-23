@@ -48,10 +48,10 @@ export function LogViewer({ appName }: LogViewerProps) {
         {logs && (
           <div className="bg-muted rounded p-4 overflow-auto max-h-96">
             <div className="text-xs text-muted-foreground mb-2">
-              Container: {logs.container}
+              Pod: {logs.pod} | Container: {logs.container}
             </div>
             <pre className="text-xs whitespace-pre-wrap font-mono">
-              {logs.logs}
+              {logs.lines.join("\n")}
             </pre>
           </div>
         )}
