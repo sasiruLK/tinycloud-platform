@@ -1,9 +1,10 @@
 # Multi-stage cross-compilation build
 # Stage 1: Build on native platform (buildx handles this)
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
+ENV GOTOOLCHAIN=auto
 RUN go mod download
 
 COPY . .

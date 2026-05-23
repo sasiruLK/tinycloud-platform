@@ -3,9 +3,11 @@ package config
 import "os"
 
 type Config struct {
-	Port        string
-	CORSOrigins string
-	KubeConfig  string // optional, for local dev
+	Port         string
+	CORSOrigins  string
+	KubeConfig   string // optional, for local dev
+	GitHubToken  string
+	GitHubUser   string
 }
 
 func Load() *Config {
@@ -23,5 +25,7 @@ func Load() *Config {
 		Port:        port,
 		CORSOrigins: cors,
 		KubeConfig:  os.Getenv("KUBECONFIG"),
+		GitHubToken: os.Getenv("GITHUB_TOKEN"),
+		GitHubUser:  os.Getenv("GITHUB_USERNAME"),
 	}
 }

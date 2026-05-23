@@ -3,10 +3,12 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/sasiruLK/tinycloud-platform/internal/git"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
 	"github.com/sasiruLK/tinycloud-platform/internal/models"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -14,12 +16,16 @@ import (
 
 // Handler holds dependencies
 type Handler struct {
-	K8s *k8s.Client
+	K8s  *k8s.Client
+	Git  *git.GitOps
 }
 
 // New creates a new Handler
 func New(k8sClient *k8s.Client) *Handler {
-	return &Handler{K8s: k8sClient}
+	return &Handler{
+		K8s: k8sClient,
+		Git: git.NewGitOps(),
+	}
 }
 
 // Health returns API health status
@@ -57,7 +63,6 @@ func (h *Handler) GetApp(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("app not found: %v", err))
 	}
 
-	// Get managed resources
 	resources := getAppResources(app)
 
 	detail := models.AppDetail{
@@ -76,7 +81,6 @@ func (h *Handler) GetLogs(c *fiber.Ctx) error {
 
 	ctx := context.Background()
 
-	// Get app to find its namespace
 	app, err := h.K8s.GetApplication(ctx, name)
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "app not found")
@@ -87,13 +91,11 @@ func (h *Handler) GetLogs(c *fiber.Ctx) error {
 		ns = "default"
 	}
 
-	// Find pods for the deployment
 	pods, err := h.K8s.GetDeploymentPods(ctx, ns, name)
 	if err != nil || len(pods.Items) == 0 {
 		return fiber.NewError(fiber.StatusNotFound, "no pods found for app")
 	}
 
-	// Get logs from first pod
 	podName := pods.Items[0].Name
 	logs, err := h.K8s.GetPodLogs(ctx, ns, podName, container, int64(tail))
 	if err != nil {
@@ -128,31 +130,211 @@ func (h *Handler) TriggerSync(c *fiber.Ctx) error {
 	})
 }
 
-// Rollback triggers a rollback (Phase 2)
+// RollbackRequest body
+type RollbackRequest struct {
+	TargetRevision string `json:"targetRevision"`
+	Reason         string `json:"reason"`
+	InitiatedBy    string `json:"initiatedBy"`
+}
+
+// Rollback triggers a rollback to a previous gitops-lab commit
 func (h *Handler) Rollback(c *fiber.Ctx) error {
-	// For MVP Phase 1, return placeholder
-	return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{
-		"message": "Rollback endpoint - implement in Phase 2 with Git integration",
+	name := c.Params("name")
+	var req RollbackRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	// Validate inputs
+	if req.TargetRevision == "" || !isValidSHA(req.TargetRevision) {
+		return fiber.NewError(fiber.StatusBadRequest, "targetRevision must be a 40-char hex SHA")
+	}
+	if req.Reason == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "reason is required")
+	}
+	if req.InitiatedBy == "" {
+		req.InitiatedBy = "api"
+	}
+
+	ctx := context.Background()
+
+	// Check app exists
+	app, err := h.K8s.GetApplication(ctx, name)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "app not found")
+	}
+
+	// Check not already in rollback
+	currentTarget, _ := h.K8s.GetAppTargetRevision(ctx, name)
+	if strings.HasPrefix(currentTarget, "rollback/") {
+		return fiber.NewError(fiber.StatusConflict, "app is already in rollback state")
+	}
+
+	// Validate target SHA exists in gitops-lab
+	valid, err := h.Git.ValidateSHA(req.TargetRevision)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to validate SHA: %v", err))
+	}
+	if !valid {
+		return fiber.NewError(fiber.StatusUnprocessableEntity, "target revision is not a known-good commit")
+	}
+
+	// Get current image info for history
+	currentRev, _, _ := unstructured.NestedString(app.Object, "status", "sync", "revision")
+	currentImage := ""
+	images, _, _ := unstructured.NestedSlice(app.Object, "status", "summary", "images")
+	if len(images) > 0 {
+		if img, ok := images[0].(string); ok {
+			currentImage = img
+		}
+	}
+
+	// Get target image from commit (simplified: we'll extract from the commit's sidecar or just record the SHA)
+	// For MVP, we just record the targetRevision; the actual image is in the gitops-lab commit
+	targetImage := ""
+	// TODO: could read .argocd-source-*.yaml from the target commit
+
+	// Step 1: Create rollback branch
+	if err := h.Git.CreateRollbackBranch(name, req.TargetRevision); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to create rollback branch: %v", err))
+	}
+
+	// Step 2: Patch Argo CD Application targetRevision
+	rollbackBranch := fmt.Sprintf("rollback/%s", name)
+	if err := h.K8s.PatchTargetRevision(ctx, name, rollbackBranch); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to patch Argo CD app: %v", err))
+	}
+
+	// Step 3: Record in rollbacks.yaml
+	rollbackID := fmt.Sprintf("rb-%s-%s", name, time.Now().Format("20060102-150405"))
+	entry := &git.RollbackEntry{
+		ID:               rollbackID,
+		Type:             "rollback",
+		Timestamp:        time.Now().UTC().Format(time.RFC3339),
+		TargetRevision:   req.TargetRevision,
+		TargetImage:      targetImage,
+		PreviousRevision: currentRev,
+		PreviousImage:    currentImage,
+		Reason:           req.Reason,
+		RollbackBranch:   rollbackBranch,
+		InitiatedBy:      req.InitiatedBy,
+	}
+
+	if err := h.Git.RecordRollback(name, entry); err != nil {
+		// Log but don't fail — Argo CD is already tracking rollback branch
+		fmt.Printf("Warning: failed to record rollback in git: %v\n", err)
+	}
+
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		"rollbackId":     rollbackID,
+		"app":            name,
+		"rollbackBranch": rollbackBranch,
+		"targetRevision": req.TargetRevision,
+		"targetImage":    targetImage,
+		"previousRevision": currentRev,
+		"previousImage":    currentImage,
+		"status":         "active",
+		"createdAt":      entry.Timestamp,
 	})
 }
 
-// Restore triggers a restore (Phase 2)
+// RestoreRequest body
+type RestoreRequest struct {
+	Reason      string `json:"reason"`
+	InitiatedBy string `json:"initiatedBy"`
+}
+
+// Restore returns an app to main branch
 func (h *Handler) Restore(c *fiber.Ctx) error {
-	// For MVP Phase 1, return placeholder
-	return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{
-		"message": "Restore endpoint - implement in Phase 2 with Git integration",
+	name := c.Params("name")
+	var req RestoreRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	if req.Reason == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "reason is required")
+	}
+	if req.InitiatedBy == "" {
+		req.InitiatedBy = "api"
+	}
+
+	ctx := context.Background()
+
+	// Check app exists
+	app, err := h.K8s.GetApplication(ctx, name)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "app not found")
+	}
+
+	// Check app is in rollback state
+	currentTarget, _ := h.K8s.GetAppTargetRevision(ctx, name)
+	if !strings.HasPrefix(currentTarget, "rollback/") {
+		return fiber.NewError(fiber.StatusConflict, "app is not in rollback state")
+	}
+
+	// Get current revision/image for history
+	currentRev, _, _ := unstructured.NestedString(app.Object, "status", "sync", "revision")
+	currentImage := ""
+	images, _, _ := unstructured.NestedSlice(app.Object, "status", "summary", "images")
+	if len(images) > 0 {
+		if img, ok := images[0].(string); ok {
+			currentImage = img
+		}
+	}
+
+	// Step 1: Patch Argo CD back to main
+	if err := h.K8s.PatchTargetRevision(ctx, name, "main"); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to restore Argo CD app: %v", err))
+	}
+
+	// Step 2: Record restore in rollbacks.yaml and fast-forward branch
+	restoreID := fmt.Sprintf("rs-%s-%s", name, time.Now().Format("20060102-150405"))
+	entry := &git.RollbackEntry{
+		ID:                 restoreID,
+		Type:               "restore",
+		Timestamp:          time.Now().UTC().Format(time.RFC3339),
+		RestoredToRevision: currentRev,
+		RestoredToImage:    currentImage,
+		Reason:             req.Reason,
+		InitiatedBy:        req.InitiatedBy,
+	}
+
+	if err := h.Git.RecordRestore(name, entry, true); err != nil {
+		fmt.Printf("Warning: failed to record restore in git: %v\n", err)
+	}
+
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		"restoreId":        restoreID,
+		"app":              name,
+		"restoredToRevision": currentRev,
+		"restoredToImage":  currentImage,
+		"status":           "restoring",
+		"createdAt":        entry.Timestamp,
 	})
 }
 
-// ListRollbacks returns rollback history (Phase 2)
+// ListRollbacks returns rollback history
 func (h *Handler) ListRollbacks(c *fiber.Ctx) error {
+	rollbacks, err := h.Git.ReadRollbacks()
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to read rollbacks: %v", err))
+	}
+
 	return c.JSON(fiber.Map{
-		"rollbacks": []interface{}{},
-		"message":   "Rollback history - implement in Phase 2",
+		"version":     rollbacks.Version,
+		"generatedAt": rollbacks.GeneratedAt,
+		"apps":        rollbacks.Apps,
 	})
 }
 
 // Helpers
+
+var shaRegex = regexp.MustCompile(`^[a-f0-9]{40}$`)
+
+func isValidSHA(s string) bool {
+	return shaRegex.MatchString(s)
+}
 
 func convertUnstructuredToApp(u *unstructured.Unstructured) models.App {
 	status, _, _ := unstructured.NestedString(u.Object, "status", "sync", "status")
@@ -160,21 +342,7 @@ func convertUnstructuredToApp(u *unstructured.Unstructured) models.App {
 	revision, _, _ := unstructured.NestedString(u.Object, "status", "sync", "revision")
 	targetRev, _, _ := unstructured.NestedString(u.Object, "spec", "source", "targetRevision")
 
-	// Try to extract image tag from status summary or resources
 	imageTag := ""
-	resources, found, _ := unstructured.NestedSlice(u.Object, "status", "resources")
-	if found {
-		for _, r := range resources {
-			if res, ok := r.(map[string]interface{}); ok {
-				if kind, _, _ := unstructured.NestedString(res, "kind"); kind == "Deployment" {
-					// Try to get image from status if available
-					break
-				}
-			}
-		}
-	}
-
-	// Fallback: extract from sidecar file or spec (simplified)
 	images, _, _ := unstructured.NestedSlice(u.Object, "status", "summary", "images")
 	if len(images) > 0 {
 		if img, ok := images[0].(string); ok {
@@ -186,9 +354,6 @@ func convertUnstructuredToApp(u *unstructured.Unstructured) models.App {
 	}
 
 	rollbackStatus := "normal"
-	if targetRev != "main" && targetRev != "HEAD" && !strings.HasPrefix(targetRev, "rollback/") {
-		rollbackStatus = "rollback"
-	}
 	if strings.HasPrefix(targetRev, "rollback/") {
 		rollbackStatus = "rollback"
 	}
