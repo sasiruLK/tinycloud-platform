@@ -33,6 +33,7 @@ func (h *Handler) Health(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"status":  "healthy",
 		"version": "1.0.0",
+		"gitops":  "self-managed-v2",
 	})
 }
 
