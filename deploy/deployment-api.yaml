@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tinycloud-api
+  namespace: tinycloud
+  labels:
+    app: tinycloud-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tinycloud-api
+  template:
+    metadata:
+      labels:
+        app: tinycloud-api
+    spec:
+      serviceAccountName: tinycloud-api
+      imagePullSecrets:
+        - name: ghcr-creds
+      containers:
+        - name: api
+          image: ghcr.io/sasirulk/tinycloud-platform-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: PORT
+              value: "8080"
+            - name: CORS_ORIGINS
+              value: "http://tinycloud.local,https://tinycloud.local"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
