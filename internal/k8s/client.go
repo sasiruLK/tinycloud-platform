@@ -82,6 +82,25 @@ func (c *Client) TriggerSync(ctx context.Context, name string) error {
 	return err
 }
 
+// PatchTargetRevision patches the Argo CD Application's targetRevision
+func (c *Client) PatchTargetRevision(ctx context.Context, name, targetRevision string) error {
+	patch := []byte(fmt.Sprintf(`{"spec":{"source":{"targetRevision":"%s"}}}`, targetRevision))
+	_, err := c.Dynamic.Resource(c.ArgoCDGVR).Namespace("argocd").Patch(
+		ctx, name, types.MergePatchType, patch, metav1.PatchOptions{},
+	)
+	return err
+}
+
+// GetAppTargetRevision returns the current targetRevision of an Argo CD Application
+func (c *Client) GetAppTargetRevision(ctx context.Context, name string) (string, error) {
+	app, err := c.GetApplication(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	rev, _, _ := unstructured.NestedString(app.Object, "spec", "source", "targetRevision")
+	return rev, nil
+}
+
 // GetPodLogs returns logs from a pod
 func (c *Client) GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines int64) (string, error) {
 	req := c.K8s.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
