@@ -83,13 +83,15 @@ jobs:
           password: ${{ secrets.GHCR_PAT }}
 
       # ── Step 7: Compute tags ──────────────────────────
+      # Use prefix= to get raw 40-char SHA without "sha-" prefix
+      # This matches Image Updater regex: ^[a-f0-9]{40}$
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,format=long
+            type=sha,prefix=,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
       # ── Step 8: Build and push ARM64 image ───────────
