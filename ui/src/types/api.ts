@@ -21,9 +21,9 @@ export interface Resource {
 }
 
 export interface LogResponse {
-  app: string;
+  pod: string;
   container: string;
-  logs: string;
+  lines: string[];
 }
 
 export interface RollbackRequest {
