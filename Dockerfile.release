@@ -1,0 +1,10 @@
+# Minimal runtime image for CI builds
+# Binary is pre-compiled natively by GitHub Actions with GOOS=linux GOARCH=arm64
+FROM gcr.io/distroless/static:nonroot
+
+COPY api /api
+
+USER 65532:65532
+EXPOSE 8080
+
+ENTRYPOINT ["/api"]

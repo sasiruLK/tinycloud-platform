@@ -1,6 +1,6 @@
-# Multi-stage cross-compilation build
-# Stage 1: Build on native platform (buildx handles this)
-FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
+# Multi-stage cross-compilation build (for local development)
+# Stage 1: Build Go binary for target platform
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -12,8 +12,8 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o api ./cmd/api
 
-# Stage 2: Copy binary to target platform image
-FROM --platform=$TARGETPLATFORM gcr.io/distroless/static:nonroot
+# Stage 2: Copy binary to minimal runtime image
+FROM gcr.io/distroless/static:nonroot
 
 COPY --from=builder /app/api /api
 
