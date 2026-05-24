@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/sasiruLK/tinycloud-platform/internal/api/handlers"
+	"github.com/sasiruLK/tinycloud-platform/internal/api/middleware"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
 )
 
@@ -11,6 +12,9 @@ func SetupRoutes(app *fiber.App, k8sClient *k8s.Client) {
 	h := handlers.New(k8sClient)
 
 	v1 := app.Group("/v1")
+
+	// Auth middleware for all v1 routes (except /health which is handled internally)
+	v1.Use(middleware.AuthMiddleware())
 
 	// Health
 	v1.Get("/health", h.Health)
