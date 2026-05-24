@@ -10,7 +10,7 @@ interface LogViewerProps {
 
 export function LogViewer({ appName }: LogViewerProps) {
   const { logs, loading, error, fetchLogs } = useLogs(appName);
-  const [container, setContainer] = useState("app");
+  const [container, setContainer] = useState("");
   const [tail, setTail] = useState("100");
 
   return (
@@ -21,10 +21,10 @@ export function LogViewer({ appName }: LogViewerProps) {
       <CardContent>
         <div className="flex gap-2 mb-4">
           <Input
-            placeholder="Container"
+            placeholder="Container (e.g., api, ui)"
             value={container}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setContainer(e.target.value)}
-            className="w-40"
+            className="w-48"
           />
           <Input
             placeholder="Tail lines"
