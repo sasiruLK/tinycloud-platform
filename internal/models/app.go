@@ -18,6 +18,8 @@ type App struct {
 // AppDetail extends App with additional runtime details
 type AppDetail struct {
 	App
+	Repo      string     `json:"repo"`
+	Path      string     `json:"path"`
 	Resources []Resource `json:"resources"`
 }
 
