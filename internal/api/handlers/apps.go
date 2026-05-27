@@ -92,7 +92,7 @@ func (h *Handler) GetApp(c *fiber.Ctx) error {
 // GetLogs returns pod logs for an app
 func (h *Handler) GetLogs(c *fiber.Ctx) error {
 	name := c.Params("name")
-	container := c.Query("container", "app")
+	container := c.Query("container", "")
 	tail := c.QueryInt("tail", 100)
 
 	ctx := context.Background()
@@ -114,7 +114,21 @@ func (h *Handler) GetLogs(c *fiber.Ctx) error {
 			"No pods found for application")
 	}
 
-	podName := pods.Items[0].Name
+	pod := pods.Items[0]
+	podName := pod.Name
+
+	// Auto-detect container if not specified
+	if container == "" {
+		if len(pod.Spec.Containers) > 0 {
+			container = pod.Spec.Containers[0].Name
+		} else if len(pod.Spec.InitContainers) > 0 {
+			container = pod.Spec.InitContainers[0].Name
+		} else {
+			return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+				"Pod has no containers")
+		}
+	}
+
 	logs, err := h.K8s.GetPodLogs(ctx, ns, podName, container, int64(tail))
 	if err != nil {
 		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",

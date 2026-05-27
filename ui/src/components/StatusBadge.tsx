@@ -7,16 +7,40 @@ interface StatusBadgeProps {
 export function StatusBadge({ status }: StatusBadgeProps) {
   const lower = status.toLowerCase();
 
-  if (lower === "healthy" || lower === "synced") {
+  // Health statuses
+  if (lower === "healthy") {
     return <Badge variant="success">{status}</Badge>;
   }
 
-  if (lower === "progressing" || lower === "outofsync") {
+  if (lower === "progressing") {
     return <Badge variant="warning">{status}</Badge>;
   }
 
-  if (lower === "degraded" || lower === "missing" || lower === "rollback") {
+  if (["degraded", "missing", "unknown", "suspended"].includes(lower)) {
     return <Badge variant="error">{status}</Badge>;
+  }
+
+  // Sync statuses
+  if (lower === "synced") {
+    return <Badge variant="success">{status}</Badge>;
+  }
+
+  if (lower === "outofsync") {
+    return <Badge variant="warning">{status}</Badge>;
+  }
+
+  // Rollback statuses
+  if (lower === "rollback") {
+    return <Badge variant="error">{status}</Badge>;
+  }
+
+  if (lower === "normal") {
+    return <Badge variant="secondary">{status}</Badge>;
+  }
+
+  // Resource statuses
+  if (lower === "healthy" || lower === "running" || lower === "active") {
+    return <Badge variant="success">{status}</Badge>;
   }
 
   return <Badge variant="secondary">{status}</Badge>;
