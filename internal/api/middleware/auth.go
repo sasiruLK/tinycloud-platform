@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// AuthMiddleware checks for X-Auth-User header from OAuth2 Proxy.
+// AuthMiddleware checks for X-Auth-Request-User header from OAuth2 Proxy.
 // It allows unauthenticated access to /v1/health and /metrics.
 func AuthMiddleware() fiber.Handler {
 	return func(c *fiber.Ctx) error {
@@ -15,12 +15,12 @@ func AuthMiddleware() fiber.Handler {
 			return c.Next()
 		}
 
-		// Check X-Auth-User header set by OAuth2 Proxy
-		user := c.Get("X-Auth-User")
+		// Check X-Auth-Request-User header set by OAuth2 Proxy
+		user := c.Get("X-Auth-Request-User")
 		if user == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error":   true,
-				"message": "Unauthorized: missing X-Auth-User header. Please authenticate via OAuth2.",
+				"message": "Unauthorized: missing X-Auth-Request-User header. Please authenticate via OAuth2.",
 			})
 		}
 
