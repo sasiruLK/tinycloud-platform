@@ -8,6 +8,8 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"github.com/sasiruLK/tinycloud-platform/internal/api"
 	"github.com/sasiruLK/tinycloud-platform/internal/config"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
@@ -42,6 +44,13 @@ func main() {
 		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
 		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
 	}))
+
+	// Prometheus metrics endpoint (unauthenticated)
+	metricsHandler := fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler())
+	app.Get("/metrics", func(c *fiber.Ctx) error {
+		metricsHandler(c.Context())
+		return nil
+	})
 
 	api.SetupRoutes(app, k8sClient)
 
