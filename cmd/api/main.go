@@ -6,11 +6,12 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"github.com/sasiruLK/tinycloud-platform/internal/api"
+	apimw "github.com/sasiruLK/tinycloud-platform/internal/api/middleware"
+	"github.com/sasiruLK/tinycloud-platform/internal/api/response"
 	"github.com/sasiruLK/tinycloud-platform/internal/config"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
 )
@@ -27,21 +28,35 @@ func main() {
 		AppName: "TinyCloud API v1",
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
-			if e, ok := err.(*fiber.Error); ok {
+			message := "Internal server error"
+			errCode := "internal_error"
+
+			if e, ok := err.(*response.HTTPError); ok {
 				code = e.Code
+				errCode = e.ErrCode
+				message = e.Message
+			} else if e, ok := err.(*fiber.Error); ok {
+				code = e.Code
+				if code >= 400 && code < 500 {
+					message = e.Message
+					errCode = "bad_request"
+				}
 			}
-			return c.Status(code).JSON(fiber.Map{
-				"error":   true,
-				"message": err.Error(),
-			})
+
+			if code >= 500 {
+				log.Printf("[ERROR] requestId=%s error=%v", response.RequestID(c), err)
+			}
+
+			return response.JSONError(c, code, errCode, message)
 		},
 	})
 
+	app.Use(apimw.RequestID())
 	app.Use(recover.New())
-	app.Use(logger.New())
+	app.Use(apimw.StructuredLogger())
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: cfg.CORSOrigins,
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Request-ID",
 		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
 	}))
 

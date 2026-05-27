@@ -11,6 +11,9 @@ import (
 func SetupRoutes(app *fiber.App, k8sClient *k8s.Client) {
 	h := handlers.New(k8sClient)
 
+	// OpenAPI spec (unauthenticated)
+	app.Get("/openapi.json", OpenAPISpec)
+
 	v1 := app.Group("/v1")
 
 	// Auth middleware for all v1 routes (except /health which is handled internally)

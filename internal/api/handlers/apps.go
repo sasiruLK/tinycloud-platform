@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/sasiruLK/tinycloud-platform/internal/api/response"
 	"github.com/sasiruLK/tinycloud-platform/internal/git"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
 	"github.com/sasiruLK/tinycloud-platform/internal/models"
@@ -16,8 +17,8 @@ import (
 
 // Handler holds dependencies
 type Handler struct {
-	K8s  *k8s.Client
-	Git  *git.GitOps
+	K8s *k8s.Client
+	Git *git.GitOps
 }
 
 // New creates a new Handler
@@ -30,7 +31,7 @@ func New(k8sClient *k8s.Client) *Handler {
 
 // Health returns API health status
 func (h *Handler) Health(c *fiber.Ctx) error {
-	return c.JSON(fiber.Map{
+	return response.JSON(c, fiber.Map{
 		"status":  "healthy",
 		"version": "1.0.0",
 		"gitops":  "self-managed-v4",
@@ -38,12 +39,13 @@ func (h *Handler) Health(c *fiber.Ctx) error {
 	})
 }
 
-// ListApps returns all managed applications
+// ListApps returns all managed applications (paginated)
 func (h *Handler) ListApps(c *fiber.Ctx) error {
 	ctx := context.Background()
 	appsList, err := h.K8s.ListApplications(ctx)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to list apps: %v", err))
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to list applications")
 	}
 
 	apps := make([]models.App, 0, len(appsList.Items))
@@ -52,27 +54,39 @@ func (h *Handler) ListApps(c *fiber.Ctx) error {
 		apps = append(apps, app)
 	}
 
-	return c.JSON(fiber.Map{"apps": apps})
+	limit := c.QueryInt("limit", 20)
+	offset := c.QueryInt("offset", 0)
+	total := len(apps)
+
+	limit, offset, end := response.PaginateSlice(limit, offset, total)
+	paginated := apps[offset:end]
+
+	return response.JSONPaginated(c, fiber.Map{"apps": paginated}, limit, offset, total)
 }
 
-// GetApp returns a single application
+// GetApp returns a single application with full details
 func (h *Handler) GetApp(c *fiber.Ctx) error {
 	name := c.Params("name")
 	ctx := context.Background()
 
 	app, err := h.K8s.GetApplication(ctx, name)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("app not found: %v", err))
+		return response.JSONError(c, fiber.StatusNotFound, "not_found",
+			fmt.Sprintf("Application '%s' not found", name))
 	}
 
 	resources := getAppResources(app)
+	repoURL, _, _ := unstructured.NestedString(app.Object, "spec", "source", "repoURL")
+	path, _, _ := unstructured.NestedString(app.Object, "spec", "source", "path")
 
 	detail := models.AppDetail{
 		App:       convertUnstructuredToApp(app),
+		Repo:      repoURL,
+		Path:      path,
 		Resources: resources,
 	}
 
-	return c.JSON(detail)
+	return response.JSON(c, detail)
 }
 
 // GetLogs returns pod logs for an app
@@ -85,7 +99,8 @@ func (h *Handler) GetLogs(c *fiber.Ctx) error {
 
 	app, err := h.K8s.GetApplication(ctx, name)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "app not found")
+		return response.JSONError(c, fiber.StatusNotFound, "not_found",
+			fmt.Sprintf("Application '%s' not found", name))
 	}
 
 	ns := getAppDestinationNamespace(app)
@@ -95,13 +110,15 @@ func (h *Handler) GetLogs(c *fiber.Ctx) error {
 
 	pods, err := h.K8s.GetDeploymentPods(ctx, ns, name)
 	if err != nil || len(pods.Items) == 0 {
-		return fiber.NewError(fiber.StatusNotFound, "no pods found for app")
+		return response.JSONError(c, fiber.StatusNotFound, "not_found",
+			"No pods found for application")
 	}
 
 	podName := pods.Items[0].Name
 	logs, err := h.K8s.GetPodLogs(ctx, ns, podName, container, int64(tail))
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to get logs: %v", err))
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to retrieve pod logs")
 	}
 
 	lines := strings.Split(strings.TrimSpace(logs), "\n")
@@ -109,7 +126,7 @@ func (h *Handler) GetLogs(c *fiber.Ctx) error {
 		lines = []string{}
 	}
 
-	return c.JSON(models.LogResponse{
+	return response.JSON(c, models.LogResponse{
 		Pod:       podName,
 		Container: container,
 		Lines:     lines,
@@ -121,11 +138,17 @@ func (h *Handler) TriggerSync(c *fiber.Ctx) error {
 	name := c.Params("name")
 	ctx := context.Background()
 
-	if err := h.K8s.TriggerSync(ctx, name); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to trigger sync: %v", err))
+	if _, err := h.K8s.GetApplication(ctx, name); err != nil {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found",
+			fmt.Sprintf("Application '%s' not found", name))
 	}
 
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+	if err := h.K8s.TriggerSync(ctx, name); err != nil {
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to trigger sync")
+	}
+
+	return response.JSON(c, fiber.Map{
 		"operationId": fmt.Sprintf("sync-%s-%d", name, time.Now().Unix()),
 		"status":      "syncing",
 		"message":     "Sync triggered via Argo CD",
@@ -144,15 +167,17 @@ func (h *Handler) Rollback(c *fiber.Ctx) error {
 	name := c.Params("name")
 	var req RollbackRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request",
+			"Invalid request body")
 	}
 
-	// Validate inputs
 	if req.TargetRevision == "" || !isValidSHA(req.TargetRevision) {
-		return fiber.NewError(fiber.StatusBadRequest, "targetRevision must be a 40-char hex SHA")
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request",
+			"targetRevision must be a 40-character hex SHA")
 	}
 	if req.Reason == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "reason is required")
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request",
+			"reason is required")
 	}
 	if req.InitiatedBy == "" {
 		req.InitiatedBy = "api"
@@ -160,28 +185,28 @@ func (h *Handler) Rollback(c *fiber.Ctx) error {
 
 	ctx := context.Background()
 
-	// Check app exists
 	app, err := h.K8s.GetApplication(ctx, name)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "app not found")
+		return response.JSONError(c, fiber.StatusNotFound, "not_found",
+			fmt.Sprintf("Application '%s' not found", name))
 	}
 
-	// Check not already in rollback
 	currentTarget, _ := h.K8s.GetAppTargetRevision(ctx, name)
 	if strings.HasPrefix(currentTarget, "rollback/") {
-		return fiber.NewError(fiber.StatusConflict, "app is already in rollback state")
+		return response.JSONError(c, fiber.StatusConflict, "conflict",
+			"Application is already in rollback state")
 	}
 
-	// Validate target SHA exists in gitops-lab
 	valid, err := h.Git.ValidateSHA(req.TargetRevision)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to validate SHA: %v", err))
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to validate target revision")
 	}
 	if !valid {
-		return fiber.NewError(fiber.StatusUnprocessableEntity, "target revision is not a known-good commit")
+		return response.JSONError(c, fiber.StatusUnprocessableEntity, "unprocessable_entity",
+			"Target revision is not a known-good commit")
 	}
 
-	// Get current image info for history
 	currentRev, _, _ := unstructured.NestedString(app.Object, "status", "sync", "revision")
 	currentImage := ""
 	images, _, _ := unstructured.NestedSlice(app.Object, "status", "summary", "images")
@@ -191,30 +216,23 @@ func (h *Handler) Rollback(c *fiber.Ctx) error {
 		}
 	}
 
-	// Get target image from commit (simplified: we'll extract from the commit's sidecar or just record the SHA)
-	// For MVP, we just record the targetRevision; the actual image is in the gitops-lab commit
-	targetImage := ""
-	// TODO: could read .argocd-source-*.yaml from the target commit
-
-	// Step 1: Create rollback branch
 	if err := h.Git.CreateRollbackBranch(name, req.TargetRevision); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to create rollback branch: %v", err))
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to create rollback branch")
 	}
 
-	// Step 2: Patch Argo CD Application targetRevision
 	rollbackBranch := fmt.Sprintf("rollback/%s", name)
 	if err := h.K8s.PatchTargetRevision(ctx, name, rollbackBranch); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to patch Argo CD app: %v", err))
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to patch Argo CD application")
 	}
 
-	// Step 3: Record in rollbacks.yaml
 	rollbackID := fmt.Sprintf("rb-%s-%s", name, time.Now().Format("20060102-150405"))
 	entry := &git.RollbackEntry{
 		ID:               rollbackID,
 		Type:             "rollback",
 		Timestamp:        time.Now().UTC().Format(time.RFC3339),
 		TargetRevision:   req.TargetRevision,
-		TargetImage:      targetImage,
 		PreviousRevision: currentRev,
 		PreviousImage:    currentImage,
 		Reason:           req.Reason,
@@ -223,20 +241,18 @@ func (h *Handler) Rollback(c *fiber.Ctx) error {
 	}
 
 	if err := h.Git.RecordRollback(name, entry); err != nil {
-		// Log but don't fail — Argo CD is already tracking rollback branch
 		fmt.Printf("Warning: failed to record rollback in git: %v\n", err)
 	}
 
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-		"rollbackId":     rollbackID,
-		"app":            name,
-		"rollbackBranch": rollbackBranch,
-		"targetRevision": req.TargetRevision,
-		"targetImage":    targetImage,
+	return response.JSON(c, fiber.Map{
+		"rollbackId":       rollbackID,
+		"app":              name,
+		"rollbackBranch":   rollbackBranch,
+		"targetRevision":   req.TargetRevision,
 		"previousRevision": currentRev,
 		"previousImage":    currentImage,
-		"status":         "active",
-		"createdAt":      entry.Timestamp,
+		"status":           "active",
+		"createdAt":        entry.Timestamp,
 	})
 }
 
@@ -251,11 +267,13 @@ func (h *Handler) Restore(c *fiber.Ctx) error {
 	name := c.Params("name")
 	var req RestoreRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request",
+			"Invalid request body")
 	}
 
 	if req.Reason == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "reason is required")
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request",
+			"reason is required")
 	}
 	if req.InitiatedBy == "" {
 		req.InitiatedBy = "api"
@@ -263,19 +281,18 @@ func (h *Handler) Restore(c *fiber.Ctx) error {
 
 	ctx := context.Background()
 
-	// Check app exists
 	app, err := h.K8s.GetApplication(ctx, name)
 	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "app not found")
+		return response.JSONError(c, fiber.StatusNotFound, "not_found",
+			fmt.Sprintf("Application '%s' not found", name))
 	}
 
-	// Check app is in rollback state
 	currentTarget, _ := h.K8s.GetAppTargetRevision(ctx, name)
 	if !strings.HasPrefix(currentTarget, "rollback/") {
-		return fiber.NewError(fiber.StatusConflict, "app is not in rollback state")
+		return response.JSONError(c, fiber.StatusConflict, "conflict",
+			"Application is not in rollback state")
 	}
 
-	// Get current revision/image for history
 	currentRev, _, _ := unstructured.NestedString(app.Object, "status", "sync", "revision")
 	currentImage := ""
 	images, _, _ := unstructured.NestedSlice(app.Object, "status", "summary", "images")
@@ -285,12 +302,11 @@ func (h *Handler) Restore(c *fiber.Ctx) error {
 		}
 	}
 
-	// Step 1: Patch Argo CD back to main
 	if err := h.K8s.PatchTargetRevision(ctx, name, "main"); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to restore Argo CD app: %v", err))
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to restore Argo CD application")
 	}
 
-	// Step 2: Record restore in rollbacks.yaml and fast-forward branch
 	restoreID := fmt.Sprintf("rs-%s-%s", name, time.Now().Format("20060102-150405"))
 	entry := &git.RollbackEntry{
 		ID:                 restoreID,
@@ -306,13 +322,13 @@ func (h *Handler) Restore(c *fiber.Ctx) error {
 		fmt.Printf("Warning: failed to record restore in git: %v\n", err)
 	}
 
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-		"restoreId":        restoreID,
-		"app":              name,
+	return response.JSON(c, fiber.Map{
+		"restoreId":          restoreID,
+		"app":                name,
 		"restoredToRevision": currentRev,
-		"restoredToImage":  currentImage,
-		"status":           "restoring",
-		"createdAt":        entry.Timestamp,
+		"restoredToImage":    currentImage,
+		"status":             "restoring",
+		"createdAt":          entry.Timestamp,
 	})
 }
 
@@ -320,10 +336,11 @@ func (h *Handler) Restore(c *fiber.Ctx) error {
 func (h *Handler) ListRollbacks(c *fiber.Ctx) error {
 	rollbacks, err := h.Git.ReadRollbacks()
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("failed to read rollbacks: %v", err))
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to read rollback history")
 	}
 
-	return c.JSON(fiber.Map{
+	return response.JSON(c, fiber.Map{
 		"version":     rollbacks.Version,
 		"generatedAt": rollbacks.GeneratedAt,
 		"apps":        rollbacks.Apps,

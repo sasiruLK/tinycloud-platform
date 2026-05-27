@@ -50,7 +50,8 @@ func TestAuthMiddleware_ProtectedMissingHeader(t *testing.T) {
 	assert.Equal(t, fiber.StatusUnauthorized, resp.StatusCode)
 
 	body, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(body), "Unauthorized: missing X-Auth-Request-User header")
+	assert.Contains(t, string(body), "unauthorized")
+	assert.Contains(t, string(body), "Missing X-Auth-Request-User header")
 }
 
 func TestAuthMiddleware_ProtectedWithValidHeader(t *testing.T) {
