@@ -1,5 +1,8 @@
+import { ApiError } from "./error";
 import type {
-  App,
+  ApiSuccessResponse,
+  ApiErrorResponse,
+  AppsListData,
   AppDetail,
   LogResponse,
   RollbackRequest,
@@ -20,23 +23,41 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
     },
     ...options,
   });
+
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    let errorBody: ApiErrorResponse;
+    try {
+      errorBody = await res.json();
+    } catch {
+      errorBody = {
+        error: "unknown",
+        message: `HTTP ${res.status}: ${res.statusText}`,
+        requestId: res.headers.get("X-Request-Id") || "unknown",
+        status: res.status,
+      };
+    }
+    throw new ApiError(errorBody);
   }
-  return res.json();
+
+  const body = (await res.json()) as ApiSuccessResponse<T>;
+  return body.data;
 }
 
 export const apiClient = {
-  getApps: () => api<{ apps: App[] }>("/v1/apps"),
-  getApp: (name: string) => api<AppDetail>(`/v1/apps/${name}`),
-  getLogs: (name: string, container?: string, tail?: number) =>
-    api<LogResponse>(
-      `/v1/apps/${name}/logs?${new URLSearchParams({
-        container: container || "app",
-        tail: String(tail || 100),
-      })}`
+  getApps: (limit = 50, offset = 0) =>
+    api<AppsListData>(`/v1/apps?limit=${limit}&offset=${offset}`).then(
+      (res) => res.apps
     ),
+  getApp: (name: string) => api<AppDetail>(`/v1/apps/${name}`),
+  getLogs: (name: string, container?: string, tail?: number) => {
+    const params = new URLSearchParams({
+      tail: String(tail || 100),
+    });
+    if (container) {
+      params.set("container", container);
+    }
+    return api<LogResponse>(`/v1/apps/${name}/logs?${params}`);
+  },
   syncApp: (name: string) =>
     api<{ status: string }>(`/v1/apps/${name}/sync`, { method: "POST" }),
   rollbackApp: (name: string, body: RollbackRequest) =>

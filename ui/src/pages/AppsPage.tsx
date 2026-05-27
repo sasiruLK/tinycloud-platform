@@ -1,14 +1,16 @@
 import { useApps } from "@/hooks/useApps";
 import { AppCard } from "@/components/AppCard";
+import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 export function AppsPage() {
-  const { apps, loading, error, refetch } = useApps();
+  const { apps, loading, error, errorRequestId, refetch } = useApps();
 
-  if (loading) {
+  if (loading && apps.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground">Loading apps...</div>
+        <div className="text-muted-foreground animate-pulse">Loading apps...</div>
       </div>
     );
   }
@@ -16,8 +18,14 @@ export function AppsPage() {
   if (error) {
     return (
       <div className="space-y-4">
-        <div className="text-red-600">{error}</div>
-        <Button onClick={refetch}>Retry</Button>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold tracking-tight">Applications</h1>
+          <Button variant="outline" size="sm" onClick={refetch}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+        </div>
+        <ErrorAlert message={error} requestId={errorRequestId} onRetry={refetch} />
       </div>
     );
   }
@@ -25,8 +33,14 @@ export function AppsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Applications</h1>
-        <Button variant="outline" onClick={refetch}>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Applications</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {apps.length} app{apps.length !== 1 ? "s" : ""} · Auto-refreshes every 30s
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={refetch}>
+          <RefreshCw className="h-4 w-4 mr-1" />
           Refresh
         </Button>
       </div>

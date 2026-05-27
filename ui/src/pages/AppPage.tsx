@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useApp } from "@/hooks/useApp";
 import { apiClient } from "@/api/client";
+import { ApiError } from "@/api/error";
 import { LogViewer } from "@/components/LogViewer";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -16,26 +18,34 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { RefreshCw, GitBranch, FolderOpen, RotateCcw } from "lucide-react";
 
 export function AppPage() {
   const { name } = useParams<{ name: string }>();
-  const { app, loading, error, refetch } = useApp(name || "");
+  const { app, loading, error, errorRequestId, refetch } = useApp(name || "");
   const [rollbackSha, setRollbackSha] = useState("");
   const [rollbackReason, setRollbackReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionErrorRequestId, setActionErrorRequestId] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const handleSync = async () => {
     setActionLoading(true);
     setActionError(null);
+    setActionErrorRequestId(null);
     setActionSuccess(null);
     try {
       await apiClient.syncApp(name!);
       setActionSuccess("Sync triggered successfully");
       refetch();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Sync failed");
+      if (err instanceof ApiError) {
+        setActionError(err.getFriendlyMessage());
+        setActionErrorRequestId(err.requestId);
+      } else {
+        setActionError(err instanceof Error ? err.message : "Sync failed");
+      }
     } finally {
       setActionLoading(false);
     }
@@ -44,6 +54,7 @@ export function AppPage() {
   const handleRollback = async () => {
     setActionLoading(true);
     setActionError(null);
+    setActionErrorRequestId(null);
     setActionSuccess(null);
     try {
       await apiClient.rollbackApp(name!, {
@@ -56,7 +67,12 @@ export function AppPage() {
       setRollbackReason("");
       refetch();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Rollback failed");
+      if (err instanceof ApiError) {
+        setActionError(err.getFriendlyMessage());
+        setActionErrorRequestId(err.requestId);
+      } else {
+        setActionError(err instanceof Error ? err.message : "Rollback failed");
+      }
     } finally {
       setActionLoading(false);
     }
@@ -65,6 +81,7 @@ export function AppPage() {
   const handleRestore = async () => {
     setActionLoading(true);
     setActionError(null);
+    setActionErrorRequestId(null);
     setActionSuccess(null);
     try {
       await apiClient.restoreApp(name!, {
@@ -74,16 +91,21 @@ export function AppPage() {
       setActionSuccess("Restore triggered successfully");
       refetch();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Restore failed");
+      if (err instanceof ApiError) {
+        setActionError(err.getFriendlyMessage());
+        setActionErrorRequestId(err.requestId);
+      } else {
+        setActionError(err instanceof Error ? err.message : "Restore failed");
+      }
     } finally {
       setActionLoading(false);
     }
   };
 
-  if (loading) {
+  if (loading && !app) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground">Loading app details...</div>
+        <div className="text-muted-foreground animate-pulse">Loading app details...</div>
       </div>
     );
   }
@@ -91,8 +113,14 @@ export function AppPage() {
   if (error) {
     return (
       <div className="space-y-4">
-        <div className="text-red-600">{error}</div>
-        <Button onClick={refetch}>Retry</Button>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold tracking-tight">{name}</h1>
+          <Button variant="outline" size="sm" onClick={refetch}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Retry
+          </Button>
+        </div>
+        <ErrorAlert message={error} requestId={errorRequestId} onRetry={refetch} />
       </div>
     );
   }
@@ -106,19 +134,29 @@ export function AppPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{app.name}</h1>
-          <p className="text-muted-foreground">{app.namespace}</p>
+          <p className="text-sm text-muted-foreground">{app.namespace}</p>
         </div>
-        <div className="flex gap-2">
-          <StatusBadge status={app.health} />
-          <StatusBadge status={app.syncStatus} />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={refetch}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+          <div className="flex gap-2">
+            <StatusBadge status={app.health} />
+            <StatusBadge status={app.syncStatus} />
+          </div>
         </div>
       </div>
 
       {actionError && (
-        <div className="text-red-600 text-sm">{actionError}</div>
+        <ErrorAlert message={actionError} requestId={actionErrorRequestId} />
       )}
       {actionSuccess && (
-        <div className="text-green-600 text-sm">{actionSuccess}</div>
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30">
+          <p className="text-sm font-medium text-green-800 dark:text-green-200">
+            {actionSuccess}
+          </p>
+        </div>
       )}
 
       <Card>
@@ -126,7 +164,7 @@ export function AppPage() {
           <CardTitle>Details</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <div className="text-sm text-muted-foreground">Revision</div>
               <code className="text-sm">{app.revision.slice(0, 12)}...</code>
@@ -140,8 +178,45 @@ export function AppPage() {
               <code className="text-sm">{app.imageTag.slice(0, 12)}...</code>
             </div>
             <div>
-              <div className="text-sm text-muted-foreground">Rollback Status</div>
+              <div className="text-sm text-muted-foreground">Rollback</div>
               <div className="text-sm">{app.rollbackStatus}</div>
+            </div>
+          </div>
+
+          {(app.repo || app.path) && (
+            <div className="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
+              {app.repo && (
+                <div>
+                  <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+                    <GitBranch className="h-3.5 w-3.5" />
+                    Repository
+                  </div>
+                  <a
+                    href={app.repo}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary hover:underline break-all"
+                  >
+                    {app.repo}
+                  </a>
+                </div>
+              )}
+              {app.path && (
+                <div>
+                  <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    Path
+                  </div>
+                  <div className="text-sm font-mono">{app.path}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 pt-4 border-t">
+            <div className="text-sm text-muted-foreground">Destination</div>
+            <div className="text-sm">
+              {app.namespace} / {app.targetRevision}
             </div>
           </div>
         </CardContent>
@@ -149,6 +224,7 @@ export function AppPage() {
 
       <div className="flex gap-2">
         <Button onClick={handleSync} disabled={actionLoading}>
+          <RotateCcw className="h-4 w-4 mr-1" />
           {actionLoading ? "Processing..." : "Sync"}
         </Button>
 

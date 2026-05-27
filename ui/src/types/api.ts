@@ -1,3 +1,29 @@
+// Phase 2 API response shapes
+// All success responses: { data: T, requestId: string }
+// All error responses: { error: string, message: string, requestId: string, status: number }
+
+export interface ApiSuccessResponse<T> {
+  data: T;
+  requestId: string;
+}
+
+export interface ApiErrorResponse {
+  error: string;
+  message: string;
+  requestId: string;
+  status: number;
+}
+
+export interface PaginationMeta {
+  limit: number;
+  offset: number;
+  total: number;
+}
+
+export interface AppsListData {
+  apps: App[];
+}
+
 export interface App {
   name: string;
   namespace: string;
@@ -8,6 +34,8 @@ export interface App {
   targetRevision: string;
   lastSyncedAt: string;
   rollbackStatus: string;
+  repo?: string;
+  path?: string;
 }
 
 export interface AppDetail extends App {
