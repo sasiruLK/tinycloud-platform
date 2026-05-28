@@ -77,6 +77,14 @@ func JSON(c *fiber.Ctx, data interface{}) error {
 	})
 }
 
+// JSONStatus sends a structured success response with a custom HTTP status
+func JSONStatus(c *fiber.Ctx, status int, data interface{}) error {
+	return c.Status(status).JSON(SuccessResponse{
+		Data:      data,
+		RequestID: RequestID(c),
+	})
+}
+
 // JSONPaginated sends a structured paginated response
 func JSONPaginated(c *fiber.Ctx, data interface{}, limit, offset, total int) error {
 	return c.JSON(PaginatedResponse{

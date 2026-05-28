@@ -2,7 +2,8 @@ import { useApps } from "@/hooks/useApps";
 import { AppCard } from "@/components/AppCard";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Plus } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export function AppsPage() {
   const { apps, loading, error, errorRequestId, refetch } = useApps();
@@ -39,10 +40,18 @@ export function AppsPage() {
             {apps.length} app{apps.length !== 1 ? "s" : ""} · Auto-refreshes every 30s
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={refetch}>
-          <RefreshCw className="h-4 w-4 mr-1" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={refetch}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+          <Button size="sm" asChild>
+            <Link to="/apps/new">
+              <Plus className="h-4 w-4 mr-1" />
+              Create App
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

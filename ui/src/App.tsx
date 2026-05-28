@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import { LayoutDashboard, History } from "lucide-react";
 import { AppsPage } from "@/pages/AppsPage";
 import { AppPage } from "@/pages/AppPage";
+import { CreateAppPage } from "@/pages/CreateAppPage";
 import { RollbacksPage } from "@/pages/RollbacksPage";
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -58,6 +59,7 @@ export default function App() {
       <Layout>
         <Routes>
           <Route path="/apps" element={<AppsPage />} />
+          <Route path="/apps/new" element={<CreateAppPage />} />
           <Route path="/apps/:name" element={<AppPage />} />
           <Route path="/rollbacks" element={<RollbacksPage />} />
           <Route path="/" element={<AppsPage />} />

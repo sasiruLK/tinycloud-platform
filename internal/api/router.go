@@ -24,9 +24,11 @@ func SetupRoutes(app *fiber.App, k8sClient *k8s.Client) {
 
 	// Apps
 	v1.Get("/apps", h.ListApps)
+	v1.Post("/apps", h.CreateApp)
 	v1.Get("/apps/:name", h.GetApp)
 	v1.Get("/apps/:name/logs", h.GetLogs)
 	v1.Post("/apps/:name/sync", h.TriggerSync)
+	v1.Post("/apps/:name/suspend", h.SuspendApp)
 	v1.Post("/apps/:name/rollback", h.Rollback)
 	v1.Post("/apps/:name/restore", h.Restore)
 

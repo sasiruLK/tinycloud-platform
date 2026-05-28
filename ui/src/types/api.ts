@@ -104,3 +104,26 @@ export interface RollbacksResponse {
   generatedAt: string;
   version: string;
 }
+
+export interface CreateAppRequest {
+  name: string;
+  image: string;
+  tag: string;
+  replicas: number;
+  port: number;
+  env?: Record<string, string>;
+}
+
+export interface CreateAppResponse {
+  name: string;
+  url: string;
+  repo: string;
+  path: string;
+  status: "pending_gitops_sync" | string;
+}
+
+export interface SuspendResponse {
+  name: string;
+  status: string;
+  message: string;
+}

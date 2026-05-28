@@ -10,6 +10,9 @@ import type {
   RestoreRequest,
   RestoreResponse,
   RollbacksResponse,
+  CreateAppRequest,
+  CreateAppResponse,
+  SuspendResponse,
 } from "@/types/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -71,4 +74,36 @@ export const apiClient = {
       body: JSON.stringify(body),
     }),
   getRollbacks: () => api<RollbacksResponse>("/v1/rollbacks"),
+  createApp: (body: CreateAppRequest) =>
+    apiPost<CreateAppResponse>("/v1/apps", body),
+  suspendApp: (name: string) =>
+    api<SuspendResponse>(`/v1/apps/${name}/suspend`, { method: "POST" }),
 };
+
+async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    let errorBody: ApiErrorResponse;
+    try {
+      errorBody = await res.json();
+    } catch {
+      errorBody = {
+        error: "unknown",
+        message: `HTTP ${res.status}: ${res.statusText}`,
+        requestId: res.headers.get("X-Request-Id") || "unknown",
+        status: res.status,
+      };
+    }
+    throw new ApiError(errorBody);
+  }
+
+  const responseBody = (await res.json()) as ApiSuccessResponse<T>;
+  return responseBody.data;
+}
