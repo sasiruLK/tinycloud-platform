@@ -11,6 +11,7 @@ import (
 	"github.com/sasiruLK/tinycloud-platform/internal/api/response"
 	"github.com/sasiruLK/tinycloud-platform/internal/git"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
+	"github.com/sasiruLK/tinycloud-platform/internal/manifests"
 	"github.com/sasiruLK/tinycloud-platform/internal/models"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -62,6 +63,80 @@ func (h *Handler) ListApps(c *fiber.Ctx) error {
 	paginated := apps[offset:end]
 
 	return response.JSONPaginated(c, fiber.Map{"apps": paginated}, limit, offset, total)
+}
+
+// CreateApp generates manifests, commits to GitOps repo, and returns pending status.
+// ApplicationSet detects apps/{name}/ and creates the Argo CD Application.
+func (h *Handler) CreateApp(c *fiber.Ctx) error {
+	var req manifests.CreateAppRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request", "Invalid request body")
+	}
+
+	manifests.NormalizeCreateAppRequest(&req)
+	if err := manifests.ValidateCreateAppRequest(&req); err != nil {
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request", err.Error())
+	}
+
+	ctx := context.Background()
+
+	if _, err := h.K8s.GetApplication(ctx, req.Name); err == nil {
+		return response.JSONError(c, fiber.StatusConflict, "conflict",
+			fmt.Sprintf("Application '%s' already exists", req.Name))
+	}
+
+	appDir := fmt.Sprintf("apps/%s", req.Name)
+	exists, err := h.Git.PathExists(appDir)
+	if err != nil {
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to check GitOps repo")
+	}
+	if exists {
+		return response.JSONError(c, fiber.StatusConflict, "conflict",
+			fmt.Sprintf("App directory '%s' already exists in GitOps repo", appDir))
+	}
+
+	files := manifests.GenerateAppFiles(req)
+	author, _ := c.Locals("user").(string)
+	commitMsg := fmt.Sprintf("onboard(%s): add app manifests", req.Name)
+
+	if err := h.Git.CommitFiles(commitMsg, files, author); err != nil {
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to commit app manifests to GitOps repo")
+	}
+
+	result := manifests.CreateAppResponse{
+		Name:   req.Name,
+		URL:    fmt.Sprintf("%s/apps/%s/", manifests.PlatformBaseURL, req.Name),
+		Repo:   git.RepoName,
+		Path:   appDir,
+		Status: "pending_gitops_sync",
+	}
+
+	return response.JSONStatus(c, fiber.StatusCreated, result)
+}
+
+// SuspendApp scales an app to zero replicas via GitOps commit.
+func (h *Handler) SuspendApp(c *fiber.Ctx) error {
+	name := c.Params("name")
+	ctx := context.Background()
+
+	if _, err := h.K8s.GetApplication(ctx, name); err != nil {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found",
+			fmt.Sprintf("Application '%s' not found", name))
+	}
+
+	author, _ := c.Locals("user").(string)
+	if err := h.Git.UpdateDeploymentReplicas(name, 0, author); err != nil {
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
+			"Failed to suspend app in GitOps repo")
+	}
+
+	return response.JSON(c, fiber.Map{
+		"name":    name,
+		"status":  "suspended",
+		"message": "Deployment scaled to 0 replicas; Argo CD will sync the change",
+	})
 }
 
 // GetApp returns a single application with full details

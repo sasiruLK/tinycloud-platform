@@ -71,6 +71,33 @@ func OpenAPISpec(c *fiber.Ctx) error {
 						"500": errorResponse(),
 					},
 				},
+				"post": map[string]interface{}{
+					"summary":     "Create application",
+					"description": "Generates manifests and commits to GitOps repo. ApplicationSet creates the Argo CD Application. Image must already exist in registry.",
+					"tags":        []string{"apps"},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/CreateAppRequest"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"201": map[string]interface{}{
+							"description": "App manifests committed; pending GitOps sync",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CreateAppResponse"},
+								},
+							},
+						},
+						"400": errorResponse(),
+						"401": unauthorizedResponse(),
+						"409": errorResponse(),
+						"500": errorResponse(),
+					},
+				},
 			},
 			"/apps/{name}": map[string]interface{}{
 				"get": map[string]interface{}{
@@ -134,6 +161,29 @@ func OpenAPISpec(c *fiber.Ctx) error {
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/SyncResponse"},
+								},
+							},
+						},
+						"401": unauthorizedResponse(),
+						"404": errorResponse(),
+						"500": errorResponse(),
+					},
+				},
+			},
+			"/apps/{name}/suspend": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Suspend application",
+					"description": "Scales app to zero replicas via GitOps commit. History is preserved.",
+					"tags":        []string{"apps"},
+					"parameters": []map[string]interface{}{
+						{"name": "name", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Application name"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "App suspended",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SuspendResponse"},
 								},
 							},
 						},
@@ -338,6 +388,48 @@ func OpenAPISpec(c *fiber.Ctx) error {
 								"operationId": map[string]interface{}{"type": "string"},
 								"status":      map[string]interface{}{"type": "string"},
 								"message":     map[string]interface{}{"type": "string"},
+							},
+						},
+						"requestId": map[string]interface{}{"type": "string"},
+					},
+				},
+				"CreateAppRequest": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":     map[string]interface{}{"type": "string", "example": "my-app"},
+						"image":    map[string]interface{}{"type": "string", "example": "ghcr.io/user/my-app"},
+						"tag":      map[string]interface{}{"type": "string", "example": "1.0.0"},
+						"replicas": map[string]interface{}{"type": "integer", "example": 2},
+						"port":     map[string]interface{}{"type": "integer", "example": 8080},
+						"env":      map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
+					},
+					"required": []string{"name", "image", "tag", "replicas", "port"},
+				},
+				"CreateAppResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"data": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"name":   map[string]interface{}{"type": "string"},
+								"url":    map[string]interface{}{"type": "string"},
+								"repo":   map[string]interface{}{"type": "string"},
+								"path":   map[string]interface{}{"type": "string"},
+								"status": map[string]interface{}{"type": "string", "example": "pending_gitops_sync"},
+							},
+						},
+						"requestId": map[string]interface{}{"type": "string"},
+					},
+				},
+				"SuspendResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"data": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"name":    map[string]interface{}{"type": "string"},
+								"status":  map[string]interface{}{"type": "string", "example": "suspended"},
+								"message": map[string]interface{}{"type": "string"},
 							},
 						},
 						"requestId": map[string]interface{}{"type": "string"},

@@ -88,6 +88,180 @@ func (g *GitOps) Clone() (*git.Repository, error) {
 	return repo, nil
 }
 
+// PathExists checks if a path exists in the cloned repo on main
+func (g *GitOps) PathExists(relPath string) (bool, error) {
+	repo, err := g.Clone()
+	if err != nil {
+		return false, err
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return false, err
+	}
+
+	if err := w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("main"),
+	}); err != nil {
+		return false, fmt.Errorf("failed to checkout main: %w", err)
+	}
+
+	fullPath := filepath.Join(g.WorkDir, relPath)
+	_, err = os.Stat(fullPath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+// CommitFiles writes multiple files, commits, and pushes to main
+func (g *GitOps) CommitFiles(message string, files map[string][]byte, author string) error {
+	repo, err := g.Clone()
+	if err != nil {
+		return err
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return err
+	}
+
+	if err := w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("main"),
+	}); err != nil {
+		return fmt.Errorf("failed to checkout main: %w", err)
+	}
+
+	for relPath, content := range files {
+		fullPath := filepath.Join(g.WorkDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory for %s: %w", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, content, 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", relPath, err)
+		}
+		if _, err := w.Add(relPath); err != nil {
+			return fmt.Errorf("failed to stage %s: %w", relPath, err)
+		}
+	}
+
+	if author == "" {
+		author = "tinycloud-api"
+	}
+
+	_, err = w.Commit(message, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  author,
+			Email: fmt.Sprintf("%s@tinycloud.local", author),
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
+	err = repo.Push(&git.PushOptions{
+		Auth: &http.BasicAuth{
+			Username: g.Username,
+			Password: g.Token,
+		},
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to push commit: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateDeploymentReplicas sets replicas in apps/{app}/deployment.yaml and commits
+func (g *GitOps) UpdateDeploymentReplicas(app string, replicas int, author string) error {
+	repo, err := g.Clone()
+	if err != nil {
+		return err
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return err
+	}
+
+	if err := w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("main"),
+	}); err != nil {
+		return fmt.Errorf("failed to checkout main: %w", err)
+	}
+
+	relPath := filepath.Join("apps", app, "deployment.yaml")
+	fullPath := filepath.Join(g.WorkDir, relPath)
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return fmt.Errorf("deployment manifest not found for app %s: %w", app, err)
+	}
+
+	updated, err := patchDeploymentReplicas(data, replicas)
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(fullPath, updated, 0644); err != nil {
+		return fmt.Errorf("failed to write deployment: %w", err)
+	}
+
+	if _, err := w.Add(filepath.ToSlash(filepath.Join("apps", app, "deployment.yaml"))); err != nil {
+		return fmt.Errorf("failed to stage deployment: %w", err)
+	}
+
+	if author == "" {
+		author = "tinycloud-api"
+	}
+
+	msg := fmt.Sprintf("suspend(%s): scale to %d replicas", app, replicas)
+	_, err = w.Commit(msg, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  author,
+			Email: fmt.Sprintf("%s@tinycloud.local", author),
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+
+	err = repo.Push(&git.PushOptions{
+		Auth: &http.BasicAuth{
+			Username: g.Username,
+			Password: g.Token,
+		},
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to push commit: %w", err)
+	}
+
+	return nil
+}
+
+func patchDeploymentReplicas(data []byte, replicas int) ([]byte, error) {
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse deployment yaml: %w", err)
+	}
+
+	spec, ok := doc["spec"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("deployment spec not found")
+	}
+	spec["replicas"] = replicas
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal deployment yaml: %w", err)
+	}
+	return out, nil
+}
+
 // CreateRollbackBranch creates a rollback branch at the target commit
 func (g *GitOps) CreateRollbackBranch(app, targetSHA string) error {
 	repo, err := g.Clone()

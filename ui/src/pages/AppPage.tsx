@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useApp } from "@/hooks/useApp";
 import { apiClient } from "@/api/client";
 import { ApiError } from "@/api/error";
@@ -18,11 +18,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, GitBranch, FolderOpen, RotateCcw } from "lucide-react";
+import { RefreshCw, GitBranch, FolderOpen, RotateCcw, Loader2, ExternalLink, PauseCircle } from "lucide-react";
 
 export function AppPage() {
   const { name } = useParams<{ name: string }>();
-  const { app, loading, error, errorRequestId, refetch } = useApp(name || "");
+  const [searchParams] = useSearchParams();
+  const expectPending = searchParams.get("pending") === "1";
+  const { app, loading, error, errorRequestId, pendingGitOps, refetch } = useApp(name || "", {
+    fastPoll: expectPending,
+  });
   const [rollbackSha, setRollbackSha] = useState("");
   const [rollbackReason, setRollbackReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
@@ -102,10 +106,59 @@ export function AppPage() {
     }
   };
 
-  if (loading && !app) {
+  const handleSuspend = async () => {
+    setActionLoading(true);
+    setActionError(null);
+    setActionErrorRequestId(null);
+    setActionSuccess(null);
+    try {
+      await apiClient.suspendApp(name!);
+      setActionSuccess("App suspended — scaling to 0 replicas via GitOps");
+      refetch();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.getFriendlyMessage());
+        setActionErrorRequestId(err.requestId);
+      } else {
+        setActionError(err instanceof Error ? err.message : "Suspend failed");
+      }
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  if (loading && !app && !pendingGitOps) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-muted-foreground animate-pulse">Loading app details...</div>
+      </div>
+    );
+  }
+
+  if (pendingGitOps && !app) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold tracking-tight">{name}</h1>
+          <Button variant="outline" size="sm" onClick={refetch}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+        </div>
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6 dark:border-blue-900 dark:bg-blue-950/30">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            <div>
+              <p className="font-medium text-blue-900 dark:text-blue-100">
+                Waiting for GitOps sync
+              </p>
+              <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                Manifests committed to gitops-lab. ApplicationSet will create the Argo CD Application shortly.
+                Polling every 5 seconds…
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -167,7 +220,7 @@ export function AppPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <div className="text-sm text-muted-foreground">Revision</div>
-              <code className="text-sm">{app.revision.slice(0, 12)}...</code>
+              <code className="text-sm">{app.revision ? `${app.revision.slice(0, 12)}...` : "—"}</code>
             </div>
             <div>
               <div className="text-sm text-muted-foreground">Target</div>
@@ -175,7 +228,7 @@ export function AppPage() {
             </div>
             <div>
               <div className="text-sm text-muted-foreground">Image</div>
-              <code className="text-sm">{app.imageTag.slice(0, 12)}...</code>
+              <code className="text-sm">{app.imageTag ? `${app.imageTag.slice(0, 12)}...` : "—"}</code>
             </div>
             <div>
               <div className="text-sm text-muted-foreground">Rollback</div>
@@ -212,6 +265,21 @@ export function AppPage() {
               )}
             </div>
           )}
+
+          <div className="mt-4 pt-4 border-t">
+            <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <ExternalLink className="h-3.5 w-3.5" />
+              Public URL
+            </div>
+            <a
+              href={`https://tinycloud-platform.duckdns.org/apps/${app.name}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary hover:underline break-all"
+            >
+              https://tinycloud-platform.duckdns.org/apps/{app.name}/
+            </a>
+          </div>
 
           <div className="mt-4 pt-4 border-t">
             <div className="text-sm text-muted-foreground">Destination</div>
@@ -264,6 +332,11 @@ export function AppPage() {
 
         <Button variant="secondary" onClick={handleRestore} disabled={actionLoading}>
           Restore to Main
+        </Button>
+
+        <Button variant="outline" onClick={handleSuspend} disabled={actionLoading}>
+          <PauseCircle className="h-4 w-4 mr-1" />
+          Suspend
         </Button>
       </div>
 
