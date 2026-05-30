@@ -127,8 +127,17 @@ func (r *Runner) runJob(ctx context.Context, job *types.BuildJob) error {
 	tag := commit
 	fullImage := image + ":" + tag
 	r.log(ctx, job.ID, "stdout", "building "+fullImage)
-	if err := r.run(ctx, job.ID, jobDir, "docker", "buildx", "build", "--platform", "linux/arm64", "-t", fullImage, "--push", "."); err != nil {
+	if err := r.run(ctx, job.ID, jobDir, "docker", "buildx", "build", "--platform", "linux/arm64", "-t", fullImage, "--load", "."); err != nil {
 		r.fail(ctx, job.ID, "build failed: "+err.Error())
+		return nil
+	}
+	if err := r.smokeTest(ctx, job.ID, fullImage, job.Port); err != nil {
+		r.fail(ctx, job.ID, "smoke test failed: "+err.Error())
+		return nil
+	}
+	r.log(ctx, job.ID, "stdout", "smoke test passed")
+	if err := r.run(ctx, job.ID, jobDir, "docker", "push", fullImage); err != nil {
+		r.fail(ctx, job.ID, "push failed: "+err.Error())
 		return nil
 	}
 	r.log(ctx, job.ID, "stdout", "pushed "+fullImage)
@@ -178,26 +187,60 @@ EXPOSE %d
 `, port, port)
 	case "go":
 		return fmt.Sprintf(`FROM golang:1.25-alpine AS build
-WORKDIR /app
+WORKDIR /src
 COPY . .
 RUN go mod download
-# Patch common hardcoded localhost bindings so the app listens on 0.0.0.0
-RUN find . -name "*.go" -exec sed -i 's/localhost:[0-9]\+/0.0.0.0:%d/g' {} + 2>/dev/null || true
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o app .
+RUN find . -name "*.go" -exec sed -i \
+	-e 's/localhost:[0-9]\+/0.0.0.0:%d/g' \
+	-e 's/"127\.0\.0\.1:[0-9]\+"/"0.0.0.0:%d"/g' \
+	-e 's/":8080"/":%d"/g' {} + 2>/dev/null || true
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o /server .
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /app
-COPY --from=build /app/app /app
-# Copy common static assets (HTML templates, CSS, JS, config files)
-COPY --from=build /app/*.html /app/*.css /app/*.js /app/*.json /app/*.yaml /app/*.yml /app/*.toml /app/*.env /app/.env* /app/static /app/templates /app/public /app/dist /app/build /app/views /app/assets ./ 2>/dev/null || true
+COPY --from=build /server /app/server
 USER 65532:65532
 ENV PORT=%d
 EXPOSE %d
-ENTRYPOINT ["/app"]
-`, port, port, port)
+ENTRYPOINT ["/app/server"]
+`, port, port, port, port, port)
 	default:
 		return ""
 	}
+}
+
+func (r *Runner) smokeTest(ctx context.Context, jobID, fullImage string, port int) error {
+	if port == 0 {
+		port = 8080
+	}
+	containerName := "tinycloud-smoke-" + jobID
+	defer func() {
+		_ = r.run(ctx, jobID, "", "docker", "rm", "-f", containerName)
+	}()
+
+	if err := r.run(ctx, jobID, "", "docker", "run", "-d", "--name", containerName,
+		"-e", fmt.Sprintf("PORT=%d", port),
+		"-p", fmt.Sprintf("127.0.0.1:%d:%d", port, port),
+		fullImage); err != nil {
+		return fmt.Errorf("container failed to start: %w", err)
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
+	var lastErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+		cmd := exec.CommandContext(ctx, "curl", "-fsS", "-o", "/dev/null", url)
+		if err := cmd.Run(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	return fmt.Errorf("service did not respond on %s: %w", url, lastErr)
 }
 
 func (r *Runner) run(ctx context.Context, jobID, dir, name string, args ...string) error {
