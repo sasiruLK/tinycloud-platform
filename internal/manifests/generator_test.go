@@ -74,6 +74,7 @@ func TestGenerateAppFiles(t *testing.T) {
 	assert.Contains(t, deployment, "replicas: 3")
 	assert.Contains(t, deployment, "containerPort: 3000")
 	assert.Contains(t, deployment, "ghcr.io/user/demo:2.1.0")
+	assert.Contains(t, deployment, "ocir-creds")
 	assert.Contains(t, deployment, `name: LOG_LEVEL`)
 	assert.Contains(t, deployment, `value: "debug"`)
 

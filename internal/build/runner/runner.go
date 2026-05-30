@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,8 +21,9 @@ type Runner struct {
 	coordinatorURL string
 	token          string
 	workDir        string
-	registry       string
-	owner          string
+	imagePrefix    string
+	buildPlatform  string
+	cacheRef       string
 	githubToken    string
 	pollInterval   time.Duration
 	http           *http.Client
@@ -31,18 +33,21 @@ type Config struct {
 	CoordinatorURL string
 	Token          string
 	WorkDir        string
-	Registry       string
-	Owner          string
-	GitHubToken    string
-	PollInterval   time.Duration
+	// ImagePrefix is the registry path without tag, e.g. iad.ocir.io/idzghas4xwzv/tinycloud
+	ImagePrefix string
+	// Registry + Owner are legacy GHCR-style fields used when ImagePrefix is empty.
+	Registry string
+	Owner    string
+	// BuildPlatform sets buildx --platform (default linux/arm64). Empty on native ARM64 runner.
+	BuildPlatform string
+	CacheRef      string
+	GitHubToken   string
+	PollInterval  time.Duration
 }
 
 func New(cfg Config) *Runner {
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = "/tmp/tinycloud-builds"
-	}
-	if cfg.Registry == "" {
-		cfg.Registry = "ghcr.io"
 	}
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 5 * time.Second
@@ -51,12 +56,42 @@ func New(cfg Config) *Runner {
 		coordinatorURL: strings.TrimRight(cfg.CoordinatorURL, "/"),
 		token:          cfg.Token,
 		workDir:        cfg.WorkDir,
-		registry:       cfg.Registry,
-		owner:          strings.Trim(cfg.Owner, "/"),
+		imagePrefix:    resolveImagePrefix(cfg),
+		buildPlatform:  resolveBuildPlatform(cfg.BuildPlatform),
+		cacheRef:       strings.TrimSpace(cfg.CacheRef),
 		githubToken:    cfg.GitHubToken,
 		pollInterval:   cfg.PollInterval,
 		http:           &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+func resolveImagePrefix(cfg Config) string {
+	if p := strings.Trim(cfg.ImagePrefix, "/"); p != "" {
+		return p
+	}
+	registry := cfg.Registry
+	if registry == "" {
+		registry = "ghcr.io"
+	}
+	owner := strings.Trim(cfg.Owner, "/")
+	if owner == "" {
+		owner = "sasirulk"
+	}
+	return registry + "/" + owner
+}
+
+// resolveBuildPlatform returns the buildx --platform value, or "" for native builds.
+func resolveBuildPlatform(explicit string) string {
+	if explicit == "native" || explicit == "none" {
+		return ""
+	}
+	if explicit != "" {
+		return explicit
+	}
+	if runtime.GOARCH == "arm64" {
+		return ""
+	}
+	return "linux/arm64"
 }
 
 func (r *Runner) Run(ctx context.Context) error {
@@ -123,11 +158,12 @@ func (r *Runner) runJob(ctx context.Context, job *types.BuildJob) error {
 		}
 	}
 
-	image := fmt.Sprintf("%s/%s/%s", r.registry, r.owner, job.AppName)
+	image := fmt.Sprintf("%s/%s", r.imagePrefix, job.AppName)
 	tag := commit
 	fullImage := image + ":" + tag
 	r.log(ctx, job.ID, "stdout", "building "+fullImage)
-	if err := r.run(ctx, job.ID, jobDir, "docker", "buildx", "build", "--platform", "linux/arm64", "-t", fullImage, "--load", "."); err != nil {
+	buildArgs := r.buildArgs(fullImage)
+	if err := r.run(ctx, job.ID, jobDir, buildArgs[0], buildArgs[1:]...); err != nil {
 		r.fail(ctx, job.ID, "build failed: "+err.Error())
 		return nil
 	}
@@ -144,6 +180,21 @@ func (r *Runner) runJob(ctx context.Context, job *types.BuildJob) error {
 	return r.status(ctx, job.ID, types.RunnerStatusRequest{
 		Status: types.StatusSucceeded, CommitSHA: commit, Framework: framework, Image: image, Tag: tag,
 	})
+}
+
+func (r *Runner) buildArgs(fullImage string) []string {
+	args := []string{"docker", "buildx", "build", "-t", fullImage}
+	if r.buildPlatform != "" {
+		args = append(args, "--platform", r.buildPlatform)
+	}
+	if r.cacheRef != "" {
+		args = append(args,
+			"--cache-from", "type=registry,ref="+r.cacheRef,
+			"--cache-to", "type=registry,ref="+r.cacheRef+",mode=max",
+		)
+	}
+	args = append(args, "--load", ".")
+	return args
 }
 
 func (r *Runner) cloneURL(repoURL string) string {

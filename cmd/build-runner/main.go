@@ -24,8 +24,11 @@ func main() {
 		CoordinatorURL: env("BUILD_COORDINATOR_URL", "http://127.0.0.1:8090"),
 		Token:          os.Getenv("BUILD_COORDINATOR_TOKEN"),
 		WorkDir:        env("RUNNER_WORK_DIR", "/tmp/tinycloud-builds"),
-		Registry:       env("GHCR_REGISTRY", "ghcr.io"),
-		Owner:          env("GHCR_OWNER", "sasirulk"),
+		ImagePrefix:    firstNonEmpty(os.Getenv("IMAGE_PREFIX"), os.Getenv("OCIR_IMAGE_PREFIX")),
+		Registry:       firstNonEmpty(os.Getenv("IMAGE_REGISTRY"), os.Getenv("OCIR_REGISTRY"), os.Getenv("GHCR_REGISTRY")),
+		Owner:          firstNonEmpty(os.Getenv("IMAGE_NAMESPACE"), os.Getenv("OCIR_NAMESPACE"), os.Getenv("GHCR_OWNER")),
+		BuildPlatform:  os.Getenv("BUILD_PLATFORM"),
+		CacheRef:       firstNonEmpty(os.Getenv("BUILD_CACHE_REF"), os.Getenv("OCIR_CACHE_REF")),
 		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
 		PollInterval:   pollInterval,
 	})
@@ -41,4 +44,13 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -1,36 +1,55 @@
 # TinyCloud Build Infrastructure
 
-Phase 1 uses two standalone AMD VMs.
+Phase 1 moves the build pipeline to a **native ARM64 build-vm** (repurposed `monitoring-vm`, `10.0.0.107`) and pushes images to **OCIR**.
 
-- AMD VM #2 runs `tinycloud-build-coordinator` on the private VCN.
-- AMD VM #1 runs `tinycloud-build-runner` with Docker Buildx.
-- TinyCloud API talks to the coordinator through `BUILD_COORDINATOR_URL`.
-- Secrets are loaded from OCI Vault into the systemd environment files before service start.
+## Topology
+
+| Host | Private IP | Role |
+|------|------------|------|
+| build-vm (was monitoring-vm) | 10.0.0.107 | Coordinator + runner (native ARM64, Docker Buildx) |
+| k3s cluster | — | Pulls from OCIR via `ocir-creds` |
+| 1GB AMD VMs | 10.0.0.122 / 10.0.0.55 | Legacy QEMU builders — decommission after cutover |
 
 ## Flow
 
 ```text
-TinyCloud API -> Build Coordinator -> Build Runner -> GHCR -> gitops-lab -> Argo CD
+TinyCloud API -> Build Coordinator (build-vm) -> Build Runner (same host) -> OCIR -> gitops-lab -> Argo CD
 ```
 
 ## OCI Vault Secrets
 
-Store these as Vault secrets and render them into `/etc/tinycloud/*.env` using instance principals:
+Render into `/etc/tinycloud/*.env` at boot (OCI CLI + instance principals):
 
-- `BUILD_COORDINATOR_TOKEN` — shared secret between API, Coordinator, and Runner
-- `GITHUB_TOKEN` — single PAT for all GitHub operations:
-  - API: listing user repositories
-  - Coordinator: writing manifests to `gitops-lab`
-  - Runner: cloning private source repositories
-- GHCR credentials for `docker login ghcr.io`
+- `BUILD_COORDINATOR_TOKEN` — shared secret between API, coordinator, and runner
+- `GITHUB_TOKEN` — PAT for GitHub (API repos, GitOps commits, private clones)
+- `OCIR_AUTH_TOKEN` + `OCIR_USERNAME` — `docker login iad.ocir.io`
 
-The services intentionally read secrets from environment variables so the VM bootstrap can use the OCI CLI without linking the platform binaries to the OCI SDK.
+See [ocir-setup.md](./deploy/ocir-setup.md) and [infrastructure-runbook.md](./infrastructure-runbook.md).
+
+## Runner Configuration
+
+```bash
+IMAGE_PREFIX=iad.ocir.io/idzghas4xwzv/tinycloud
+BUILD_CACHE_REF=iad.ocir.io/idzghas4xwzv/tinycloud/cache:buildkit
+BUILD_COORDINATOR_URL=http://127.0.0.1:8090   # on build-vm when colocated
+```
+
+On ARM64, the runner skips `--platform linux/arm64` (native build). Set `BUILD_PLATFORM=linux/arm64` only for QEMU cross-build on AMD.
+
+## Bootstrap
+
+```bash
+# On build-vm (150.136.96.152 / 10.0.0.107)
+sudo ./scripts/deploy/bootstrap-build-vm.sh
+```
 
 ## Runner Prerequisites
 
 ```bash
-docker login ghcr.io
-docker buildx create --use --name tinycloud
+docker login iad.ocir.io -u 'idzghas4xwzv/YOUR_OCI_USERNAME'
+docker buildx create --use --name tinycloud 2>/dev/null || docker buildx use tinycloud
 ```
 
-The runner builds `linux/arm64` images and pushes immutable tags based on the source commit SHA.
+Images use immutable commit-SHA tags: `iad.ocir.io/idzghas4xwzv/tinycloud/{app}:{sha}`.
+
+BuildKit registry cache avoids Object Storage API limits (50k req/month).
