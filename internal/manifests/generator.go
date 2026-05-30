@@ -196,7 +196,7 @@ spec:
         tinycloud.io/managed-by: platform
     spec:
       imagePullSecrets:
-        - name: ghcr-creds
+        - name: ocir-creds
       containers:
         - name: {{APP_NAME}}
           image: {{IMAGE}}:{{TAG}}
@@ -336,7 +336,7 @@ spec:
   commonUpdateSettings:
     updateStrategy: semver
     allowTags: "regexp:^v?[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$"
-    pullSecret: pullsecret:argocd/ghcr-creds
+    pullSecret: pullsecret:argocd/ocir-creds
 
   writeBackConfig:
     method: git

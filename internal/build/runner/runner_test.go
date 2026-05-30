@@ -41,3 +41,38 @@ func TestCloneURLRedactsGitHubToken(t *testing.T) {
 	require.True(t, strings.Contains(url, "secret-token"))
 	require.NotContains(t, r.redact(url), "secret-token")
 }
+
+func TestResolveImagePrefix(t *testing.T) {
+	require.Equal(t, "iad.ocir.io/ns/tinycloud", resolveImagePrefix(Config{
+		ImagePrefix: "iad.ocir.io/ns/tinycloud",
+	}))
+	require.Equal(t, "ghcr.io/sasirulk", resolveImagePrefix(Config{
+		Registry: "ghcr.io",
+		Owner:    "sasirulk",
+	}))
+}
+
+func TestBuildArgsNativeARM64WithCache(t *testing.T) {
+	r := New(Config{
+		ImagePrefix:   "iad.ocir.io/ns/tinycloud",
+		BuildPlatform: "native",
+		CacheRef:      "iad.ocir.io/ns/tinycloud/cache:buildkit",
+	})
+	args := r.buildArgs("iad.ocir.io/ns/tinycloud/app:abc123")
+	require.Equal(t, []string{
+		"docker", "buildx", "build", "-t", "iad.ocir.io/ns/tinycloud/app:abc123",
+		"--cache-from", "type=registry,ref=iad.ocir.io/ns/tinycloud/cache:buildkit",
+		"--cache-to", "type=registry,ref=iad.ocir.io/ns/tinycloud/cache:buildkit,mode=max",
+		"--load", ".",
+	}, args)
+}
+
+func TestBuildArgsCrossCompile(t *testing.T) {
+	r := New(Config{
+		ImagePrefix:   "ghcr.io/user",
+		BuildPlatform: "linux/arm64",
+	})
+	args := r.buildArgs("ghcr.io/user/app:tag")
+	require.Contains(t, args, "--platform")
+	require.Contains(t, args, "linux/arm64")
+}
