@@ -15,6 +15,7 @@ import type {
   SuspendResponse,
   BuildJob,
   BuildLogsResponse,
+  GitHubRepo,
 } from "@/types/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -75,6 +76,7 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  getGitHubRepos: () => api<{ repos: GitHubRepo[] }>("/v1/github/repos"),
   getRollbacks: () => api<RollbacksResponse>("/v1/rollbacks"),
   createApp: (body: CreateAppRequest) =>
     apiPost<CreateAppResponse>("/v1/apps", body),

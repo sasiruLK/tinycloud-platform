@@ -260,6 +260,72 @@ func OpenAPISpec(c *fiber.Ctx) error {
 					},
 				},
 			},
+			"/github/repos": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List GitHub repositories",
+					"description": "Returns the authenticated user's GitHub repositories for the repo picker",
+					"tags":        []string{"github"},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "List of repositories",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/GitHubReposResponse"},
+								},
+							},
+						},
+						"401": unauthorizedResponse(),
+						"503": errorResponse(),
+						"502": errorResponse(),
+					},
+				},
+			},
+			"/builds/{id}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get build status",
+					"description": "Returns the status of a queued or running build",
+					"tags":        []string{"builds"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Build ID"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Build details",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/BuildJob"},
+								},
+							},
+						},
+						"401": unauthorizedResponse(),
+						"404": errorResponse(),
+						"500": errorResponse(),
+					},
+				},
+			},
+			"/builds/{id}/logs": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get build logs",
+					"description": "Returns real-time build logs",
+					"tags":        []string{"builds"},
+					"parameters": []map[string]interface{}{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "description": "Build ID"},
+						{"name": "after", "in": "query", "schema": map[string]interface{}{"type": "integer", "default": 0}, "description": "Only return logs after this sequence number"},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Build logs",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/BuildLogsResponse"},
+								},
+							},
+						},
+						"401": unauthorizedResponse(),
+						"500": errorResponse(),
+					},
+				},
+			},
 			"/rollbacks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List rollback history",
@@ -481,6 +547,84 @@ func OpenAPISpec(c *fiber.Ctx) error {
 							},
 						},
 						"requestId": map[string]interface{}{"type": "string"},
+					},
+				},
+				"GitHubReposResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"data": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"repos": map[string]interface{}{
+									"type": "array",
+									"items": map[string]interface{}{"$ref": "#/components/schemas/GitHubRepo"},
+								},
+							},
+						},
+						"requestId": map[string]interface{}{"type": "string"},
+					},
+				},
+				"GitHubRepo": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":          map[string]interface{}{"type": "string"},
+						"fullName":      map[string]interface{}{"type": "string"},
+						"url":           map[string]interface{}{"type": "string"},
+						"defaultBranch": map[string]interface{}{"type": "string"},
+						"language":      map[string]interface{}{"type": "string"},
+						"private":       map[string]interface{}{"type": "boolean"},
+					},
+				},
+				"BuildJob": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"data": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id":         map[string]interface{}{"type": "string"},
+								"appName":    map[string]interface{}{"type": "string"},
+								"repoUrl":    map[string]interface{}{"type": "string"},
+								"ref":        map[string]interface{}{"type": "string"},
+								"commitSha":  map[string]interface{}{"type": "string"},
+								"framework":  map[string]interface{}{"type": "string"},
+								"image":      map[string]interface{}{"type": "string"},
+								"tag":        map[string]interface{}{"type": "string"},
+								"status":     map[string]interface{}{"type": "string", "enum": []string{"queued", "running", "succeeded", "failed"}},
+								"attempts":   map[string]interface{}{"type": "integer"},
+								"replicas":   map[string]interface{}{"type": "integer"},
+								"port":       map[string]interface{}{"type": "integer"},
+								"error":      map[string]interface{}{"type": "string"},
+								"createdAt":  map[string]interface{}{"type": "string", "format": "date-time"},
+								"updatedAt":  map[string]interface{}{"type": "string", "format": "date-time"},
+								"startedAt":  map[string]interface{}{"type": "string", "format": "date-time"},
+								"finishedAt": map[string]interface{}{"type": "string", "format": "date-time"},
+							},
+						},
+						"requestId": map[string]interface{}{"type": "string"},
+					},
+				},
+				"BuildLogsResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"data": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"lines": map[string]interface{}{
+									"type": "array",
+									"items": map[string]interface{}{"$ref": "#/components/schemas/BuildLogLine"},
+								},
+							},
+						},
+						"requestId": map[string]interface{}{"type": "string"},
+					},
+				},
+				"BuildLogLine": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"sequence":  map[string]interface{}{"type": "integer"},
+						"timestamp": map[string]interface{}{"type": "string", "format": "date-time"},
+						"stream":    map[string]interface{}{"type": "string"},
+						"message":   map[string]interface{}{"type": "string"},
 					},
 				},
 				"RollbacksResponse": map[string]interface{}{
