@@ -37,6 +37,9 @@ func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient
 	v1.Get("/builds/:id", h.GetBuild)
 	v1.Get("/builds/:id/logs", h.GetBuildLogs)
 
+	// GitHub
+	v1.Get("/github/repos", h.ListGitHubRepos)
+
 	// Rollbacks
 	v1.Get("/rollbacks", h.ListRollbacks)
 }

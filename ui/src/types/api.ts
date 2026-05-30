@@ -105,6 +105,15 @@ export interface RollbacksResponse {
   version: string;
 }
 
+export interface GitHubRepo {
+  name: string;
+  fullName: string;
+  url: string;
+  defaultBranch: string;
+  language: string;
+  private: boolean;
+}
+
 export interface CreateAppRequest {
   name: string;
   repoUrl: string;
