@@ -30,10 +30,13 @@ func TestGeneratedDockerfile(t *testing.T) {
 	goFile := GeneratedDockerfile("go", 8080)
 	require.Contains(t, goFile, "GOARCH=arm64")
 	require.Contains(t, goFile, "EXPOSE 8080")
+	require.Contains(t, goFile, `ENTRYPOINT ["/app/server"]`)
+	require.Contains(t, goFile, "COPY --from=build /server /app/server")
+	require.NotContains(t, goFile, `ENTRYPOINT ["/app"]`)
 }
 
-func TestCloneURLRedactsSourceToken(t *testing.T) {
-	r := New(Config{SourceToken: "secret-token"})
+func TestCloneURLRedactsGitHubToken(t *testing.T) {
+	r := New(Config{GitHubToken: "secret-token"})
 	url := r.cloneURL("https://github.com/user/repo")
 	require.True(t, strings.Contains(url, "secret-token"))
 	require.NotContains(t, r.redact(url), "secret-token")
