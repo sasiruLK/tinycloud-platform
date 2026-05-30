@@ -22,7 +22,7 @@ type Runner struct {
 	workDir        string
 	registry       string
 	owner          string
-	sourceToken    string
+	githubToken    string
 	pollInterval   time.Duration
 	http           *http.Client
 }
@@ -33,7 +33,7 @@ type Config struct {
 	WorkDir        string
 	Registry       string
 	Owner          string
-	SourceToken    string
+	GitHubToken    string
 	PollInterval   time.Duration
 }
 
@@ -53,7 +53,7 @@ func New(cfg Config) *Runner {
 		workDir:        cfg.WorkDir,
 		registry:       cfg.Registry,
 		owner:          strings.Trim(cfg.Owner, "/"),
-		sourceToken:    cfg.SourceToken,
+		githubToken:    cfg.GitHubToken,
 		pollInterval:   cfg.PollInterval,
 		http:           &http.Client{Timeout: 30 * time.Second},
 	}
@@ -138,17 +138,17 @@ func (r *Runner) runJob(ctx context.Context, job *types.BuildJob) error {
 }
 
 func (r *Runner) cloneURL(repoURL string) string {
-	if r.sourceToken == "" || !strings.HasPrefix(repoURL, "https://github.com/") {
+	if r.githubToken == "" || !strings.HasPrefix(repoURL, "https://github.com/") {
 		return repoURL
 	}
-	return strings.Replace(repoURL, "https://github.com/", "https://x-access-token:"+r.sourceToken+"@github.com/", 1)
+	return strings.Replace(repoURL, "https://github.com/", "https://x-access-token:"+r.githubToken+"@github.com/", 1)
 }
 
 func (r *Runner) redact(message string) string {
-	if r.sourceToken == "" {
+	if r.githubToken == "" {
 		return message
 	}
-	return strings.ReplaceAll(message, r.sourceToken, "REDACTED")
+	return strings.ReplaceAll(message, r.githubToken, "REDACTED")
 }
 
 func DetectFramework(dir string) (string, error) {
