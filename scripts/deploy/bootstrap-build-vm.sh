@@ -57,6 +57,14 @@ fi
 
 docker buildx create --use --name tinycloud 2>/dev/null || docker buildx use tinycloud
 
+# OCI cloud images reject non-SSH inbound by default (iptables REJECT → "no route to host").
+if ! iptables -C INPUT -p tcp -s 10.0.0.0/24 --dport 8090 -j ACCEPT 2>/dev/null; then
+  iptables -I INPUT 5 -p tcp -s 10.0.0.0/24 --dport 8090 -j ACCEPT
+  if command -v netfilter-persistent >/dev/null; then
+    netfilter-persistent save
+  fi
+fi
+
 if [[ "$STOP_MONITORING" == "1" ]]; then
   echo "Stopping monitoring Docker stack..."
   if [[ -d /opt/monitoring ]]; then
