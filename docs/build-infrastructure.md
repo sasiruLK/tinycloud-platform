@@ -17,9 +17,11 @@ TinyCloud API -> Build Coordinator -> Build Runner -> GHCR -> gitops-lab -> Argo
 
 Store these as Vault secrets and render them into `/etc/tinycloud/*.env` using instance principals:
 
-- `BUILD_COORDINATOR_TOKEN`
-- `GITHUB_TOKEN` for `gitops-lab` writes
-- `SOURCE_GITHUB_TOKEN` for private source clones
+- `BUILD_COORDINATOR_TOKEN` — shared secret between API, Coordinator, and Runner
+- `GITHUB_TOKEN` — single PAT for all GitHub operations:
+  - API: listing user repositories
+  - Coordinator: writing manifests to `gitops-lab`
+  - Runner: cloning private source repositories
 - GHCR credentials for `docker login ghcr.io`
 
 The services intentionally read secrets from environment variables so the VM bootstrap can use the OCI CLI without linking the platform binaries to the OCI SDK.
