@@ -26,7 +26,7 @@ func main() {
 		WorkDir:        env("RUNNER_WORK_DIR", "/tmp/tinycloud-builds"),
 		Registry:       env("GHCR_REGISTRY", "ghcr.io"),
 		Owner:          env("GHCR_OWNER", "sasirulk"),
-		SourceToken:    os.Getenv("SOURCE_GITHUB_TOKEN"),
+		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
 		PollInterval:   pollInterval,
 	})
 
