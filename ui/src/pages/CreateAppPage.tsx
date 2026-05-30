@@ -13,9 +13,9 @@ const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 export function CreateAppPage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
-  const [image, setImage] = useState("");
-  const [tag, setTag] = useState("1.0.0");
-  const [replicas, setReplicas] = useState(2);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [ref, setRef] = useState("main");
+  const [replicas, setReplicas] = useState(1);
   const [port, setPort] = useState(8080);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,14 +33,14 @@ export function CreateAppPage() {
     setErrorRequestId(null);
 
     try {
-      await apiClient.createApp({
+      const build = await apiClient.createApp({
         name: name.trim(),
-        image: image.trim(),
-        tag: tag.trim(),
+        repoUrl: repoUrl.trim(),
+        ref: ref.trim() || "main",
         replicas,
         port,
       });
-      navigate(`/apps/${name.trim()}?pending=1`);
+      navigate(`/builds/${build.buildId}`);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.getFriendlyMessage());
@@ -58,7 +58,7 @@ export function CreateAppPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Create Application</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Deploy a pre-built container image via GitOps. The image must already exist in your registry.
+          Build a GitHub repository, push it to GHCR, then deploy it via GitOps.
         </p>
       </div>
 
@@ -90,25 +90,25 @@ export function CreateAppPage() {
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="image" className="text-sm font-medium">Container Image</label>
+              <label htmlFor="repoUrl" className="text-sm font-medium">GitHub Repository</label>
               <Input
-                id="image"
-                placeholder="ghcr.io/user/my-app"
-                value={image}
-                onChange={(e) => setImage(e.target.value)}
+                id="repoUrl"
+                placeholder="https://github.com/user/my-app"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
                 required
               />
-              <p className="text-xs text-muted-foreground">Without tag — use the Tag field below</p>
+              <p className="text-xs text-muted-foreground">Node.js and Go repositories are supported in Phase 1</p>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <label htmlFor="tag" className="text-sm font-medium">Tag</label>
+                <label htmlFor="ref" className="text-sm font-medium">Ref</label>
                 <Input
-                  id="tag"
-                  placeholder="1.0.0"
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
+                  id="ref"
+                  placeholder="main"
+                  value={ref}
+                  onChange={(e) => setRef(e.target.value)}
                   required
                 />
               </div>
@@ -149,9 +149,9 @@ export function CreateAppPage() {
               <Button type="button" variant="outline" onClick={() => navigate("/apps")}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading || !nameValid || !image.trim()}>
+              <Button type="submit" disabled={loading || !nameValid || !repoUrl.trim()}>
                 <Plus className="h-4 w-4 mr-1" />
-                {loading ? "Creating..." : "Create App"}
+                {loading ? "Queueing..." : "Build App"}
               </Button>
             </div>
           </CardContent>

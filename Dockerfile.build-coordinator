@@ -1,0 +1,17 @@
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+ENV GOTOOLCHAIN=auto
+RUN go mod download
+
+COPY . .
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o build-coordinator ./cmd/build-coordinator
+
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /app/build-coordinator /build-coordinator
+USER 65532:65532
+EXPOSE 8090
+ENTRYPOINT ["/build-coordinator"]

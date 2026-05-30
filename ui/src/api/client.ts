@@ -13,6 +13,8 @@ import type {
   CreateAppRequest,
   CreateAppResponse,
   SuspendResponse,
+  BuildJob,
+  BuildLogsResponse,
 } from "@/types/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -78,6 +80,9 @@ export const apiClient = {
     apiPost<CreateAppResponse>("/v1/apps", body),
   suspendApp: (name: string) =>
     api<SuspendResponse>(`/v1/apps/${name}/suspend`, { method: "POST" }),
+  getBuild: (id: string) => api<BuildJob>(`/v1/builds/${id}`),
+  getBuildLogs: (id: string, after = 0) =>
+    api<BuildLogsResponse>(`/v1/builds/${id}/logs?after=${after}`),
 };
 
 async function apiPost<T>(path: string, body: unknown): Promise<T> {

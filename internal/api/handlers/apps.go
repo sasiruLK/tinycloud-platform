@@ -9,6 +9,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/sasiruLK/tinycloud-platform/internal/api/response"
+	buildclient "github.com/sasiruLK/tinycloud-platform/internal/build/client"
+	buildtypes "github.com/sasiruLK/tinycloud-platform/internal/build/types"
 	"github.com/sasiruLK/tinycloud-platform/internal/git"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
 	"github.com/sasiruLK/tinycloud-platform/internal/manifests"
@@ -18,15 +20,17 @@ import (
 
 // Handler holds dependencies
 type Handler struct {
-	K8s *k8s.Client
-	Git *git.GitOps
+	K8s   *k8s.Client
+	Git   *git.GitOps
+	Build *buildclient.Client
 }
 
 // New creates a new Handler
-func New(k8sClient *k8s.Client) *Handler {
+func New(k8sClient *k8s.Client, buildClient *buildclient.Client) *Handler {
 	return &Handler{
-		K8s: k8sClient,
-		Git: git.NewGitOps(),
+		K8s:   k8sClient,
+		Git:   git.NewGitOps(),
+		Build: buildClient,
 	}
 }
 
@@ -36,7 +40,7 @@ func (h *Handler) Health(c *fiber.Ctx) error {
 		"status":  "healthy",
 		"version": "1.0.0",
 		"gitops":  "self-managed-v4",
-		"build":   "native-arm64-cross-compile",
+		"build":   "standalone-coordinator-runner",
 	})
 }
 
@@ -65,27 +69,48 @@ func (h *Handler) ListApps(c *fiber.Ctx) error {
 	return response.JSONPaginated(c, fiber.Map{"apps": paginated}, limit, offset, total)
 }
 
-// CreateApp generates manifests, commits to GitOps repo, and returns pending status.
-// ApplicationSet detects apps/{name}/ and creates the Argo CD Application.
+// CreateApp enqueues a source build. The coordinator commits manifests after a successful image push.
 func (h *Handler) CreateApp(c *fiber.Ctx) error {
-	var req manifests.CreateAppRequest
+	if h.Build == nil {
+		return response.JSONError(c, fiber.StatusServiceUnavailable, "build_coordinator_unavailable",
+			"Build coordinator is not configured")
+	}
+
+	var req buildtypes.CreateBuildRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.JSONError(c, fiber.StatusBadRequest, "bad_request", "Invalid request body")
 	}
 
-	manifests.NormalizeCreateAppRequest(&req)
-	if err := manifests.ValidateCreateAppRequest(&req); err != nil {
+	req.AppName = strings.TrimSpace(req.AppName)
+	if req.AppName == "" {
+		req.AppName = strings.TrimSpace(req.Name)
+	}
+	if req.Ref == "" {
+		req.Ref = "main"
+	}
+	if req.Port == 0 {
+		req.Port = 8080
+	}
+	if req.Replicas == 0 {
+		req.Replicas = 1
+	}
+	if err := manifests.ValidateCreateAppRequest(&manifests.CreateAppRequest{
+		Name: req.AppName, Image: "ghcr.io/placeholder/app", Tag: "1.0.0", Replicas: req.Replicas, Port: req.Port,
+	}); err != nil {
 		return response.JSONError(c, fiber.StatusBadRequest, "bad_request", err.Error())
+	}
+	if strings.TrimSpace(req.RepoURL) == "" {
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request", "repoUrl is required")
 	}
 
 	ctx := context.Background()
 
-	if _, err := h.K8s.GetApplication(ctx, req.Name); err == nil {
+	if _, err := h.K8s.GetApplication(ctx, req.AppName); err == nil {
 		return response.JSONError(c, fiber.StatusConflict, "conflict",
-			fmt.Sprintf("Application '%s' already exists", req.Name))
+			fmt.Sprintf("Application '%s' already exists", req.AppName))
 	}
 
-	appDir := fmt.Sprintf("apps/%s", req.Name)
+	appDir := fmt.Sprintf("apps/%s", req.AppName)
 	exists, err := h.Git.PathExists(appDir)
 	if err != nil {
 		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
@@ -96,24 +121,36 @@ func (h *Handler) CreateApp(c *fiber.Ctx) error {
 			fmt.Sprintf("App directory '%s' already exists in GitOps repo", appDir))
 	}
 
-	files := manifests.GenerateAppFiles(req)
-	author, _ := c.Locals("user").(string)
-	commitMsg := fmt.Sprintf("onboard(%s): add app manifests", req.Name)
-
-	if err := h.Git.CommitFiles(commitMsg, files, author); err != nil {
-		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error",
-			"Failed to commit app manifests to GitOps repo")
+	build, err := h.Build.CreateBuild(ctx, req)
+	if err != nil {
+		return response.JSONError(c, fiber.StatusBadGateway, "build_coordinator_error", err.Error())
 	}
 
-	result := manifests.CreateAppResponse{
-		Name:   req.Name,
-		URL:    fmt.Sprintf("%s/apps/%s/", manifests.PlatformBaseURL, req.Name),
-		Repo:   git.RepoName,
-		Path:   appDir,
-		Status: "pending_gitops_sync",
-	}
+	return response.JSONStatus(c, fiber.StatusCreated, build)
+}
 
-	return response.JSONStatus(c, fiber.StatusCreated, result)
+func (h *Handler) GetBuild(c *fiber.Ctx) error {
+	if h.Build == nil {
+		return response.JSONError(c, fiber.StatusServiceUnavailable, "build_coordinator_unavailable",
+			"Build coordinator is not configured")
+	}
+	build, err := h.Build.GetBuild(context.Background(), c.Params("id"))
+	if err != nil {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found", "Build not found")
+	}
+	return response.JSON(c, build)
+}
+
+func (h *Handler) GetBuildLogs(c *fiber.Ctx) error {
+	if h.Build == nil {
+		return response.JSONError(c, fiber.StatusServiceUnavailable, "build_coordinator_unavailable",
+			"Build coordinator is not configured")
+	}
+	logs, err := h.Build.GetLogs(context.Background(), c.Params("id"), int64(c.QueryInt("after", 0)))
+	if err != nil {
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error", "Failed to retrieve build logs")
+	}
+	return response.JSON(c, logs)
 }
 
 // SuspendApp scales an app to zero replicas via GitOps commit.

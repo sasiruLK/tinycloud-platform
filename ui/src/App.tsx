@@ -4,6 +4,7 @@ import { AppsPage } from "@/pages/AppsPage";
 import { AppPage } from "@/pages/AppPage";
 import { CreateAppPage } from "@/pages/CreateAppPage";
 import { RollbacksPage } from "@/pages/RollbacksPage";
+import { BuildPage } from "@/pages/BuildPage";
 
 function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="/apps" element={<AppsPage />} />
           <Route path="/apps/new" element={<CreateAppPage />} />
           <Route path="/apps/:name" element={<AppPage />} />
+          <Route path="/builds/:id" element={<BuildPage />} />
           <Route path="/rollbacks" element={<RollbacksPage />} />
           <Route path="/" element={<AppsPage />} />
         </Routes>
