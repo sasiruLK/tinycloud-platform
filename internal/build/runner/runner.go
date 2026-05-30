@@ -186,7 +186,10 @@ RUN find . -name "*.go" -exec sed -i 's/localhost:[0-9]\+/0.0.0.0:%d/g' {} + 2>/
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o app .
 
 FROM gcr.io/distroless/static:nonroot
+WORKDIR /app
 COPY --from=build /app/app /app
+# Copy common static assets (HTML templates, CSS, JS, config files)
+COPY --from=build /app/*.html /app/*.css /app/*.js /app/*.json /app/*.yaml /app/*.yml /app/*.toml /app/*.env /app/.env* /app/static /app/templates /app/public /app/dist /app/build /app/views /app/assets ./ 2>/dev/null || true
 USER 65532:65532
 ENV PORT=%d
 EXPOSE %d
