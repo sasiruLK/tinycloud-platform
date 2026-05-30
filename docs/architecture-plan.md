@@ -190,7 +190,7 @@ docker buildx build \
 
 **Phase 1 checklist**:
 - [x] Create OCIR repos (app images + cache)
-- [ ] Offload monitoring from `monitoring-vm` (Phase 2 — monitoring stack still running on build-vm)
+- [ ] Offload monitoring from `monitoring-vm` (Phase 2 — in-cluster stack + OCI alarms)
 - [x] Repurpose `monitoring-vm` → `build-vm` with coordinator + runner
 - [x] Configure BuildKit registry cache in OCIR (`BUILD_CACHE_REF`)
 - [x] Update k3s `BUILD_COORDINATOR_URL` + `ocir-creds` in argocd/tinycloud
@@ -261,12 +261,14 @@ Vault: tinycloud-secrets
 - Complement cert-manager for public-facing certs (Phase 4)
 
 **Phase 2 checklist**:
-- [ ] Set up OCI Monitoring metrics + alarms
+- [x] Deploy in-cluster VictoriaMetrics + Loki (gitops `monitoring-agents`)
+- [x] Repoint vmagent/promtail/vmalert to in-cluster services
+- [ ] Set up OCI Monitoring metrics + alarms (`scripts/phase2/setup-oci-monitoring.sh`)
 - [ ] Configure Notifications → Discord/email
 - [ ] Create Console Dashboards for infra overview
 - [ ] Enable APM tracing on tinycloud-api (optional)
-- [ ] Decommission VictoriaMetrics/Grafana/Loki on `monitoring-vm`
-- [ ] Migrate all secrets to OCI Vault
+- [ ] Decommission VictoriaMetrics/Grafana/Loki Docker on build-vm
+- [ ] Migrate all secrets to OCI Vault (`scripts/phase2/render-vault-env.sh`)
 - [ ] Issue internal TLS via OCI Certificates
 
 ---
