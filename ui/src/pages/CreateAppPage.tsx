@@ -254,6 +254,9 @@ export function CreateAppPage() {
                   onChange={(e) => setPort(Number(e.target.value))}
                   required
                 />
+                <p className="text-xs text-muted-foreground">
+                  Your app must listen on <code>0.0.0.0:$PORT</code> (set via PORT env var). For Go/Node.js the platform auto-patches common patterns.
+                </p>
               </div>
             </div>
 

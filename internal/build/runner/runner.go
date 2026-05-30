@@ -181,14 +181,17 @@ EXPOSE %d
 WORKDIR /app
 COPY . .
 RUN go mod download
+# Patch common hardcoded localhost bindings so the app listens on 0.0.0.0
+RUN find . -name "*.go" -exec sed -i 's/localhost:[0-9]\+/0.0.0.0:%d/g' {} + 2>/dev/null || true
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o app .
 
 FROM gcr.io/distroless/static:nonroot
 COPY --from=build /app/app /app
 USER 65532:65532
+ENV PORT=%d
 EXPOSE %d
 ENTRYPOINT ["/app"]
-`, port)
+`, port, port, port)
 	default:
 		return ""
 	}
