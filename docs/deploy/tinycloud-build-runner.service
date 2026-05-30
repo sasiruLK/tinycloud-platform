@@ -1,0 +1,17 @@
+[Unit]
+Description=TinyCloud Build Runner
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+EnvironmentFile=/etc/tinycloud/build-runner.env
+ExecStart=/usr/local/bin/tinycloud-build-runner
+Restart=always
+RestartSec=5
+User=tinycloud
+Group=docker
+StateDirectory=tinycloud-build-runner
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

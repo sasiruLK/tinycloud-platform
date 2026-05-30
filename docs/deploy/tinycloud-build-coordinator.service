@@ -1,0 +1,17 @@
+[Unit]
+Description=TinyCloud Build Coordinator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/tinycloud/build-coordinator.env
+ExecStart=/usr/local/bin/tinycloud-build-coordinator
+Restart=always
+RestartSec=5
+User=tinycloud
+Group=tinycloud
+StateDirectory=tinycloud-build-coordinator
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

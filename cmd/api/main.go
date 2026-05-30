@@ -8,12 +8,13 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"github.com/sasiruLK/tinycloud-platform/internal/api"
 	apimw "github.com/sasiruLK/tinycloud-platform/internal/api/middleware"
 	"github.com/sasiruLK/tinycloud-platform/internal/api/response"
+	buildclient "github.com/sasiruLK/tinycloud-platform/internal/build/client"
 	"github.com/sasiruLK/tinycloud-platform/internal/config"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
 )
 
 func main() {
@@ -67,7 +68,12 @@ func main() {
 		return nil
 	})
 
-	api.SetupRoutes(app, k8sClient)
+	var builds *buildclient.Client
+	if cfg.BuildCoordinatorURL != "" {
+		builds = buildclient.New(cfg.BuildCoordinatorURL, cfg.BuildCoordinatorToken)
+	}
+
+	api.SetupRoutes(app, k8sClient, builds)
 
 	port := cfg.Port
 	if port == "" {

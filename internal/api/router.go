@@ -4,12 +4,13 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/sasiruLK/tinycloud-platform/internal/api/handlers"
 	"github.com/sasiruLK/tinycloud-platform/internal/api/middleware"
+	buildclient "github.com/sasiruLK/tinycloud-platform/internal/build/client"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
 )
 
 // SetupRoutes registers all API routes
-func SetupRoutes(app *fiber.App, k8sClient *k8s.Client) {
-	h := handlers.New(k8sClient)
+func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient.Client) {
+	h := handlers.New(k8sClient, buildClient)
 
 	// OpenAPI spec (unauthenticated)
 	app.Get("/openapi.json", OpenAPISpec)
@@ -31,6 +32,10 @@ func SetupRoutes(app *fiber.App, k8sClient *k8s.Client) {
 	v1.Post("/apps/:name/suspend", h.SuspendApp)
 	v1.Post("/apps/:name/rollback", h.Rollback)
 	v1.Post("/apps/:name/restore", h.Restore)
+
+	// Builds
+	v1.Get("/builds/:id", h.GetBuild)
+	v1.Get("/builds/:id/logs", h.GetBuildLogs)
 
 	// Rollbacks
 	v1.Get("/rollbacks", h.ListRollbacks)

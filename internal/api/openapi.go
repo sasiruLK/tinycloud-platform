@@ -73,7 +73,7 @@ func OpenAPISpec(c *fiber.Ctx) error {
 				},
 				"post": map[string]interface{}{
 					"summary":     "Create application",
-					"description": "Generates manifests and commits to GitOps repo. ApplicationSet creates the Argo CD Application. Image must already exist in registry.",
+					"description": "Queues a source repository build. The build coordinator commits GitOps manifests after the runner pushes an image.",
 					"tags":        []string{"apps"},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -85,7 +85,7 @@ func OpenAPISpec(c *fiber.Ctx) error {
 					},
 					"responses": map[string]interface{}{
 						"201": map[string]interface{}{
-							"description": "App manifests committed; pending GitOps sync",
+							"description": "Build queued",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/CreateAppResponse"},
@@ -397,13 +397,13 @@ func OpenAPISpec(c *fiber.Ctx) error {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"name":     map[string]interface{}{"type": "string", "example": "my-app"},
-						"image":    map[string]interface{}{"type": "string", "example": "ghcr.io/user/my-app"},
-						"tag":      map[string]interface{}{"type": "string", "example": "1.0.0"},
-						"replicas": map[string]interface{}{"type": "integer", "example": 2},
+						"repoUrl":  map[string]interface{}{"type": "string", "example": "https://github.com/user/my-app"},
+						"ref":      map[string]interface{}{"type": "string", "example": "main"},
+						"replicas": map[string]interface{}{"type": "integer", "example": 1},
 						"port":     map[string]interface{}{"type": "integer", "example": 8080},
 						"env":      map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
 					},
-					"required": []string{"name", "image", "tag", "replicas", "port"},
+					"required": []string{"name", "repoUrl"},
 				},
 				"CreateAppResponse": map[string]interface{}{
 					"type": "object",
@@ -411,11 +411,9 @@ func OpenAPISpec(c *fiber.Ctx) error {
 						"data": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"name":   map[string]interface{}{"type": "string"},
-								"url":    map[string]interface{}{"type": "string"},
-								"repo":   map[string]interface{}{"type": "string"},
-								"path":   map[string]interface{}{"type": "string"},
-								"status": map[string]interface{}{"type": "string", "example": "pending_gitops_sync"},
+								"appName": map[string]interface{}{"type": "string"},
+								"buildId": map[string]interface{}{"type": "string"},
+								"status":  map[string]interface{}{"type": "string", "example": "queued"},
 							},
 						},
 						"requestId": map[string]interface{}{"type": "string"},
@@ -475,11 +473,11 @@ func OpenAPISpec(c *fiber.Ctx) error {
 						"data": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"restoreId":        map[string]interface{}{"type": "string"},
-								"app":              map[string]interface{}{"type": "string"},
+								"restoreId":          map[string]interface{}{"type": "string"},
+								"app":                map[string]interface{}{"type": "string"},
 								"restoredToRevision": map[string]interface{}{"type": "string"},
-								"status":           map[string]interface{}{"type": "string"},
-								"createdAt":        map[string]interface{}{"type": "string", "format": "date-time"},
+								"status":             map[string]interface{}{"type": "string"},
+								"createdAt":          map[string]interface{}{"type": "string", "format": "date-time"},
 							},
 						},
 						"requestId": map[string]interface{}{"type": "string"},

@@ -107,23 +107,52 @@ export interface RollbacksResponse {
 
 export interface CreateAppRequest {
   name: string;
-  image: string;
-  tag: string;
+  repoUrl: string;
+  ref: string;
   replicas: number;
   port: number;
   env?: Record<string, string>;
 }
 
 export interface CreateAppResponse {
-  name: string;
-  url: string;
-  repo: string;
-  path: string;
-  status: "pending_gitops_sync" | string;
+  appName: string;
+  buildId: string;
+  status: "queued" | string;
 }
 
 export interface SuspendResponse {
   name: string;
   status: string;
   message: string;
+}
+
+export interface BuildJob {
+  id: string;
+  appName: string;
+  repoUrl: string;
+  ref: string;
+  commitSha: string;
+  framework: string;
+  image: string;
+  tag: string;
+  status: "queued" | "running" | "succeeded" | "failed" | string;
+  attempts: number;
+  replicas: number;
+  port: number;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface BuildLogLine {
+  sequence: number;
+  timestamp: string;
+  stream: string;
+  message: string;
+}
+
+export interface BuildLogsResponse {
+  lines: BuildLogLine[];
 }
