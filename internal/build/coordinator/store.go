@@ -77,6 +77,25 @@ func (s *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
+func (s *Store) GetJobByAppName(ctx context.Context, appName string) (*types.BuildJob, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, app_name, repo_url, ref, commit_sha, framework, image, tag,
+		status, attempts, replicas, port, env_json, error, created_at, updated_at, started_at, finished_at
+		FROM build_jobs WHERE app_name = ?`, appName)
+	job, err := scanJob(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return job, err
+}
+
+func (s *Store) DeleteJob(ctx context.Context, id string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM build_logs WHERE job_id = ?`, id); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM build_jobs WHERE id = ?`, id)
+	return err
+}
+
 func (s *Store) CreateJob(ctx context.Context, job *types.BuildJob) error {
 	envJSON, err := json.Marshal(job.Env)
 	if err != nil {
