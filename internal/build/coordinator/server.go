@@ -67,6 +67,23 @@ func (s *Server) createBuild(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "app already exists in GitOps repo"})
 	}
 
+	existing, err := s.store.GetJobByAppName(ctx, req.AppName)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to check existing build"})
+	}
+	if existing != nil {
+		switch existing.Status {
+		case types.StatusFailed:
+			if err := s.store.DeleteJob(ctx, existing.ID); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to reset failed build"})
+			}
+		case types.StatusQueued, types.StatusRunning:
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "build already in progress for app"})
+		case types.StatusSucceeded:
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "build already exists for app"})
+		}
+	}
+
 	job := &types.BuildJob{
 		ID:       uuid.NewString(),
 		AppName:  req.AppName,

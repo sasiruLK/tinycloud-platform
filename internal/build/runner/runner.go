@@ -227,7 +227,7 @@ func GeneratedDockerfile(framework string, port int) string {
 		return fmt.Sprintf(`FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 COPY . .
 RUN npm run build
 

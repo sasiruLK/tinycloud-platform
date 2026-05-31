@@ -41,3 +41,32 @@ func TestStoreCreateClaimUpdateAndLogs(t *testing.T) {
 	require.Equal(t, types.StatusSucceeded, done.Status)
 	require.Equal(t, "ghcr.io/a/b", done.Image)
 }
+
+func TestStoreDeleteJobAllowsRetry(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "builds.db"))
+	require.NoError(t, err)
+	defer store.Close()
+
+	ctx := context.Background()
+	job := &types.BuildJob{
+		ID: "job-1", AppName: "my-app", RepoURL: "https://github.com/user/repo", Ref: "main",
+		Status: types.StatusFailed, Replicas: 1, Port: 8080,
+	}
+	require.NoError(t, store.CreateJob(ctx, job))
+	require.NoError(t, store.AppendLog(ctx, job.ID, "stderr", "boom"))
+
+	found, err := store.GetJobByAppName(ctx, "my-app")
+	require.NoError(t, err)
+	require.Equal(t, "job-1", found.ID)
+
+	require.NoError(t, store.DeleteJob(ctx, job.ID))
+	found, err = store.GetJobByAppName(ctx, "my-app")
+	require.NoError(t, err)
+	require.Nil(t, found)
+
+	retry := &types.BuildJob{
+		ID: "job-2", AppName: "my-app", RepoURL: "https://github.com/user/repo", Ref: "main",
+		Status: types.StatusQueued, Replicas: 1, Port: 8080,
+	}
+	require.NoError(t, store.CreateJob(ctx, retry))
+}
