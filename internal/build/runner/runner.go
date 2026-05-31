@@ -152,7 +152,7 @@ func (r *Runner) runJob(ctx context.Context, job *types.BuildJob) error {
 	dockerfile := filepath.Join(jobDir, "Dockerfile")
 	if _, err := os.Stat(dockerfile); os.IsNotExist(err) {
 		r.log(ctx, job.ID, "stdout", "generating Dockerfile for "+framework)
-		if err := os.WriteFile(dockerfile, []byte(GeneratedDockerfile(framework, job.Port)), 0644); err != nil {
+		if err := os.WriteFile(dockerfile, []byte(GeneratedDockerfile(framework, job.Port, NodeStaticOutputDir(jobDir))), 0644); err != nil {
 			r.fail(ctx, job.ID, "failed to write Dockerfile: "+err.Error())
 			return nil
 		}
@@ -221,9 +221,23 @@ func DetectFramework(dir string) (string, error) {
 	return "", fmt.Errorf("unsupported framework: expected package.json or go.mod")
 }
 
-func GeneratedDockerfile(framework string, port int) string {
+func NodeStaticOutputDir(workDir string) string {
+	data, err := os.ReadFile(filepath.Join(workDir, "package.json"))
+	if err != nil {
+		return "dist"
+	}
+	if strings.Contains(string(data), "react-scripts") {
+		return "build"
+	}
+	return "dist"
+}
+
+func GeneratedDockerfile(framework string, port int, nodeStaticRoot string) string {
 	switch framework {
 	case "node":
+		if nodeStaticRoot == "" {
+			nodeStaticRoot = "dist"
+		}
 		return fmt.Sprintf(`FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
@@ -232,10 +246,10 @@ COPY . .
 RUN npm run build
 
 FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/%s /usr/share/nginx/html
 RUN sed -i 's/listen       80;/listen       %d;/' /etc/nginx/conf.d/default.conf
 EXPOSE %d
-`, port, port)
+`, nodeStaticRoot, port, port)
 	case "go":
 		return fmt.Sprintf(`FROM golang:1.25-alpine AS build
 WORKDIR /src

@@ -121,12 +121,13 @@ func GenerateAppFiles(req CreateAppRequest) map[string][]byte {
 
 	appPath := fmt.Sprintf("apps/%s", req.Name)
 	files := map[string][]byte{
-		fmt.Sprintf("%s/namespace.yaml", appPath):         []byte(replaceVars(namespaceTemplate, vars)),
-		fmt.Sprintf("%s/deployment.yaml", appPath):        []byte(replaceVars(deploymentTemplate, vars)),
-		fmt.Sprintf("%s/service.yaml", appPath):             []byte(replaceVars(serviceTemplate, vars)),
-		fmt.Sprintf("%s/resource-quota.yaml", appPath):      []byte(replaceVars(resourceQuotaTemplate, vars)),
-		fmt.Sprintf("%s/network-policies.yaml", appPath):  []byte(replaceVars(networkPoliciesTemplate, vars)),
-		fmt.Sprintf("%s/kustomization.yaml", appPath):     []byte(replaceVars(kustomizationTemplate, vars)),
+		fmt.Sprintf("%s/namespace.yaml", appPath):              []byte(replaceVars(namespaceTemplate, vars)),
+		fmt.Sprintf("%s/deployment.yaml", appPath):             []byte(replaceVars(deploymentTemplate, vars)),
+		fmt.Sprintf("%s/service.yaml", appPath):                []byte(replaceVars(serviceTemplate, vars)),
+		fmt.Sprintf("%s/resource-quota.yaml", appPath):         []byte(replaceVars(resourceQuotaTemplate, vars)),
+		fmt.Sprintf("%s/network-policies.yaml", appPath):     []byte(replaceVars(networkPoliciesTemplate, vars)),
+		fmt.Sprintf("%s/pull-secret-sync.yaml", appPath):       []byte(replaceVars(pullSecretSyncTemplate, vars)),
+		fmt.Sprintf("%s/kustomization.yaml", appPath):          []byte(replaceVars(kustomizationTemplate, vars)),
 		fmt.Sprintf("argocd/imageupdater-%s.yaml", req.Name): []byte(replaceVars(imageUpdaterTemplate, vars)),
 	}
 
@@ -310,6 +311,86 @@ spec:
           port: 53
 `
 
+const pullSecretSyncTemplate = `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pull-secret-sync
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pull-secret-sync
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pull-secret-sync
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pull-secret-sync
+subjects:
+  - kind: ServiceAccount
+    name: pull-secret-sync
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{APP_NAME}}-read-ocir-creds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ocir-creds-reader
+subjects:
+  - kind: ServiceAccount
+    name: pull-secret-sync
+    namespace: {{APP_NAME}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sync-ocir-creds
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: pull-secret-sync
+      restartPolicy: Never
+      containers:
+        - name: sync
+          image: bitnami/kubectl:1.32.4
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              kubectl get secret ocir-creds -n argocd -o yaml | \
+                sed "s/namespace: argocd/namespace: {{APP_NAME}}/" | \
+                grep -vE '^\s*(resourceVersion|uid|creationTimestamp):' | \
+                kubectl apply -f -
+`
+
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -317,6 +398,7 @@ namespace: {{APP_NAME}}
 
 resources:
   - namespace.yaml
+  - pull-secret-sync.yaml
   - deployment.yaml
   - service.yaml
   - resource-quota.yaml
