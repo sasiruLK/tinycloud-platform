@@ -67,7 +67,7 @@ func TestGenerateAppFiles(t *testing.T) {
 	}
 
 	files := GenerateAppFiles(req)
-	require.Len(t, files, 7)
+	require.Len(t, files, 8)
 
 	deployment := string(files["apps/demo-app/deployment.yaml"])
 	assert.Contains(t, deployment, "name: demo-app")
@@ -85,6 +85,12 @@ func TestGenerateAppFiles(t *testing.T) {
 	kustomize := string(files["apps/demo-app/kustomization.yaml"])
 	assert.Contains(t, kustomize, "namespace: demo-app")
 	assert.Contains(t, kustomize, "newTag: 2.1.0")
+
+	sync := string(files["apps/demo-app/pull-secret-sync.yaml"])
+	assert.Contains(t, sync, "sync-ocir-creds")
+	assert.Contains(t, sync, "ocir-creds-reader")
+	assert.Contains(t, sync, "namespace: argocd")
+	assert.Contains(t, sync, "sync-wave: \"-1\"")
 
 	updater := string(files["argocd/imageupdater-demo-app.yaml"])
 	assert.Contains(t, updater, "name: demo-app")

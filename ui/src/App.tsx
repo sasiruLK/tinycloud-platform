@@ -63,6 +63,7 @@ export default function App() {
           <Route path="/apps/new" element={<CreateAppPage />} />
           <Route path="/apps/:name" element={<AppPage />} />
           <Route path="/builds/:id" element={<BuildPage />} />
+          <Route path="/build/:id" element={<BuildPage />} />
           <Route path="/rollbacks" element={<RollbacksPage />} />
           <Route path="/" element={<AppsPage />} />
         </Routes>

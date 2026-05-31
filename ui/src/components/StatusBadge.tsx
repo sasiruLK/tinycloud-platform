@@ -5,7 +5,7 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {
-  const lower = status.toLowerCase();
+  const lower = (status || "unknown").toLowerCase();
 
   // Health statuses
   if (lower === "healthy") {
@@ -36,6 +36,19 @@ export function StatusBadge({ status }: StatusBadgeProps) {
 
   if (lower === "normal") {
     return <Badge variant="secondary">{status}</Badge>;
+  }
+
+  // Build statuses
+  if (lower === "queued") {
+    return <Badge variant="secondary">{status}</Badge>;
+  }
+
+  if (lower === "succeeded") {
+    return <Badge variant="success">{status}</Badge>;
+  }
+
+  if (lower === "failed") {
+    return <Badge variant="error">{status}</Badge>;
   }
 
   // Resource statuses

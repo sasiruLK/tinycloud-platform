@@ -21,13 +21,28 @@ func TestDetectFramework(t *testing.T) {
 	require.Equal(t, "node", framework)
 }
 
+func TestNodeStaticOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	require.Equal(t, "dist", NodeStaticOutputDir(dir))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"react-scripts":"5.0.1"}}`), 0644))
+	require.Equal(t, "build", NodeStaticOutputDir(dir))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"devDependencies":{"vite":"5.0.0"}}`), 0644))
+	require.Equal(t, "dist", NodeStaticOutputDir(dir))
+}
+
 func TestGeneratedDockerfile(t *testing.T) {
-	node := GeneratedDockerfile("node", 3000)
+	node := GeneratedDockerfile("node", 3000, "dist")
 	require.Contains(t, node, "FROM node:22-alpine")
+	require.Contains(t, node, "/app/dist /usr/share/nginx/html")
 	require.Contains(t, node, "listen       3000")
 	require.Contains(t, node, "EXPOSE 3000")
 
-	goFile := GeneratedDockerfile("go", 8080)
+	cra := GeneratedDockerfile("node", 8080, "build")
+	require.Contains(t, cra, "/app/build /usr/share/nginx/html")
+
+	goFile := GeneratedDockerfile("go", 8080, "")
 	require.Contains(t, goFile, "GOARCH=arm64")
 	require.Contains(t, goFile, "EXPOSE 8080")
 	require.Contains(t, goFile, `ENTRYPOINT ["/app/server"]`)
