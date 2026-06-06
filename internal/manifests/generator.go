@@ -396,7 +396,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: sync
-          image: bitnami/kubectl:1.32.4
+          image: bitnami/kubectl:latest
           resources:
             requests:
               cpu: 50m
