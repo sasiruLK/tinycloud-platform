@@ -138,6 +138,7 @@ func (h *Handler) GetBuild(c *fiber.Ctx) error {
 	if err != nil {
 		return response.JSONError(c, fiber.StatusNotFound, "not_found", "Build not found")
 	}
+	h.enrichBuildDeploymentStatus(context.Background(), build)
 	return response.JSON(c, build)
 }
 
@@ -543,4 +544,43 @@ func getAppResources(u *unstructured.Unstructured) []models.Resource {
 		}
 	}
 	return resources
+}
+
+func (h *Handler) enrichBuildDeploymentStatus(ctx context.Context, build *buildtypes.BuildJob) {
+	if build == nil || build.AppName == "" {
+		return
+	}
+	if build.AppURL == "" {
+		build.AppURL = fmt.Sprintf("%s/apps/%s/", manifests.PlatformBaseURL, build.AppName)
+	}
+	if build.Status != buildtypes.StatusSucceeded {
+		return
+	}
+
+	app, err := h.K8s.GetApplication(ctx, build.AppName)
+	if err != nil {
+		if build.GitOpsCommitSHA != "" {
+			build.DeployStatus = "pending_argocd_application"
+			build.VerificationError = "GitOps commit exists, but Argo CD has not created the Application yet"
+		}
+		return
+	}
+
+	build.ArgoSyncStatus, _, _ = unstructured.NestedString(app.Object, "status", "sync", "status")
+	build.ArgoHealth, _, _ = unstructured.NestedString(app.Object, "status", "health", "status")
+
+	switch {
+	case strings.EqualFold(build.ArgoSyncStatus, "Synced") && strings.EqualFold(build.ArgoHealth, "Healthy"):
+		build.DeployStatus = "deployed"
+		build.VerificationError = ""
+	case strings.EqualFold(build.ArgoSyncStatus, "OutOfSync"):
+		build.DeployStatus = "argocd_out_of_sync"
+		build.VerificationError = "Argo CD Application exists but is out of sync"
+	case strings.EqualFold(build.ArgoHealth, "Degraded"):
+		build.DeployStatus = "degraded"
+		build.VerificationError = "Argo CD reports the application as degraded"
+	default:
+		build.DeployStatus = "argocd_progressing"
+		build.VerificationError = ""
+	}
 }

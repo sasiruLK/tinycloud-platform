@@ -148,6 +148,13 @@ export interface BuildJob {
   attempts: number;
   replicas: number;
   port: number;
+  gitopsCommitSha?: string;
+  gitopsPath?: string;
+  deployStatus?: string;
+  argoSyncStatus?: string;
+  argoHealth?: string;
+  appUrl?: string;
+  verificationError?: string;
   error?: string;
   createdAt: string;
   updatedAt: string;

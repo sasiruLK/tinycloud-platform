@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Stop the legacy Docker monitoring stack on build-vm (Phase 2 decommission).
 #
-# VictoriaMetrics + Loki now run in-cluster (monitoring namespace).
-# OCI Monitoring handles VM-level alarms.
+# OCI Monitoring/Logging/APM replace the self-hosted monitoring stack.
+# Run this only after OCI coverage has been verified.
 #
 # Usage:
 #   ./scripts/phase2/stop-build-vm-monitoring.sh
@@ -57,5 +57,6 @@ if [[ "$RUNNING" != "0" ]]; then
 fi
 
 echo "Monitoring stack stopped on build-vm."
-echo "In-cluster stack: kubectl get pods -n monitoring"
 echo "VM metrics: OCI Console → Monitoring → Alarms"
+echo "Platform logs: OCI Console → Logging"
+echo "External checks: OCI Console → APM → Synthetic Monitoring"

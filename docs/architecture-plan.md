@@ -163,7 +163,7 @@ After:  build-vm (6GB ARM, same instance) = coordinator + runner (Docker Buildx,
 ```
 
 **Implementation**:
-- Complete Phase 2 monitoring offload first (or run hybrid during transition)
+- Complete Phase 2 monitoring offload first (OCI coverage proven before deleting self-hosted manifests)
 - Install Docker + Docker Buildx on repurposed VM (no QEMU)
 - Migrate coordinator DB (SQLite) and runner work dir from AMD VMs
 - Repurpose or release the 2 AMD 1GB VMs
@@ -208,20 +208,14 @@ docker buildx build \
 
 **Why**: `monitoring-vm` consumes 1 of 4 ARM VMs (6GB) for a self-hosted stack that OCI provides free and managed.
 
-**Recommended (hybrid)**:
+**Recommended (Full OCI foundation)**:
 - **OCI Monitoring** (500M ingestion pts): VM CPU/memory/disk, build metrics, API health
 - **OCI Notifications** (1M HTTPS/mo): Alarms → Discord webhook, email
+- **OCI Logging** (10 GB/month, **shared with Flow Logs**): platform-critical logs only
+- **APM** (1,000 traces + 10 synthetic runs/hr): UI/API/auth/sample-app synthetic checks
 - **Console Dashboards** (100): Infra overview without always-on Grafana
-- **Optional slim in-cluster agent**: kube-state-metrics or custom exporter for pod-level metrics OCI doesn't natively provide
 
-**Path A — Full OCI** (maximum VM savings):
-- Also send logs to **OCI Logging** (10 GB/month, **shared with Flow Logs**)
-- Use **APM** (1,000 traces + 10 synthetic runs/hr) for API tracing and uptime checks
-- Trade-off: weaker pod-metric granularity vs VictoriaMetrics; 10 GB log cap requires sampling
-
-**Path B — In-cluster stack** (maximum fidelity):
-- Run VictoriaMetrics/Grafana/Loki as pods on k3s workers
-- Frees the VM but adds load to 6GB workers — does not achieve dedicated builder goal as cleanly
+Trade-off: weaker Kubernetes pod-metric granularity vs VictoriaMetrics/Loki, but the ARM VM becomes available for native builds and the platform loses a self-hosted operations stack. Keep OCI Logging scoped; do not ship every app pod log.
 
 **Alarms to configure**:
 - Build failure rate > 10% in 1 hour → Discord notification
@@ -261,13 +255,13 @@ Vault: tinycloud-secrets
 - Complement cert-manager for public-facing certs (Phase 4)
 
 **Phase 2 checklist**:
-- [x] Deploy in-cluster VictoriaMetrics + Loki (gitops `monitoring-agents`)
-- [x] Repoint vmagent/promtail/vmalert to in-cluster services
 - [ ] Set up OCI Monitoring metrics + alarms (`scripts/phase2/setup-oci-monitoring.sh`)
 - [ ] Configure Notifications → Discord/email
+- [ ] Configure OCI Logging for platform-critical logs only
 - [ ] Create Console Dashboards for infra overview
-- [ ] Enable APM tracing on tinycloud-api (optional)
-- [ ] Decommission VictoriaMetrics/Grafana/Loki Docker on build-vm
+- [ ] Enable APM synthetic checks for UI/API/auth/sample app
+- [ ] Verify OCI coverage, then remove self-hosted monitoring manifests from GitOps
+- [x] Decommission VictoriaMetrics/Grafana/Loki Docker on build-vm
 - [ ] Migrate all secrets to OCI Vault (`scripts/phase2/render-vault-env.sh`)
 - [ ] Issue internal TLS via OCI Certificates
 
@@ -568,7 +562,7 @@ Standby: us-phoenix-1
 - **Self-hosted VM**: Consumes 1 of 4 ARM VMs (6GB) for always-on Grafana/VictoriaMetrics/Loki
 - **OCI managed**: Monitoring, Logging, Notifications, APM, Dashboards are free and don't consume compute
 - **Trade-off**: 10 GB Logging cap (shared with Flow Logs); reduced pod-metric granularity vs VictoriaMetrics
-- **Verdict**: Hybrid — OCI for infra metrics/alarms; optional slim in-cluster agent for pod metrics
+- **Verdict**: Full OCI foundation — OCI for observability, platform-critical logs only, and remove self-hosted monitoring after coverage is proven
 
 ### 4. Why registry cache over Object Storage sync?
 - **Object Storage sync** (`s3fs`, frequent CLI): Blows 50,000 API requests/month cap
@@ -597,7 +591,7 @@ Standby: us-phoenix-1
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | No ARM headroom for new VMs | High | Repurpose monitoring-vm; do not plan new ARM VM creation |
-| Monitoring migration loses metric fidelity | Medium | Hybrid approach; keep slim in-cluster agent for pod metrics |
+| Monitoring migration loses metric fidelity | Medium | Accept lower pod-metric fidelity; keep Kubernetes live inspection for app-level debugging |
 | OCI Logging exceeds 10 GB/month (shared w/ Flow Logs) | Medium | Sample/scope logs; avoid duplicating Loki-level verbosity |
 | Object Storage 20 GB exhausted (images + cache + backups) | High | Prune OCIR tags; lean images; archive old backups |
 | Object Storage 50K API req/mo exceeded | Medium | No s3fs/cache sync; registry-based BuildKit cache only |

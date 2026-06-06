@@ -38,10 +38,10 @@ type RollbackEntry struct {
 
 // RollbacksFile is the structure of rollbacks/rollbacks.yaml
 type RollbacksFile struct {
-	Version   string                    `yaml:"version"`
-	Schema    string                    `yaml:"schema"`
-	GeneratedAt string                  `yaml:"generatedAt"`
-	Apps      map[string]*AppRollbacks `yaml:"apps"`
+	Version     string                   `yaml:"version"`
+	Schema      string                   `yaml:"schema"`
+	GeneratedAt string                   `yaml:"generatedAt"`
+	Apps        map[string]*AppRollbacks `yaml:"apps"`
 }
 
 // AppRollbacks holds rollback state for a single app
@@ -117,34 +117,34 @@ func (g *GitOps) PathExists(relPath string) (bool, error) {
 	return false, err
 }
 
-// CommitFiles writes multiple files, commits, and pushes to main
-func (g *GitOps) CommitFiles(message string, files map[string][]byte, author string) error {
+// CommitFiles writes multiple files, commits, pushes to main, and returns the new commit SHA.
+func (g *GitOps) CommitFiles(message string, files map[string][]byte, author string) (string, error) {
 	repo, err := g.Clone()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	w, err := repo.Worktree()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if err := w.Checkout(&git.CheckoutOptions{
 		Branch: plumbing.NewBranchReferenceName("main"),
 	}); err != nil {
-		return fmt.Errorf("failed to checkout main: %w", err)
+		return "", fmt.Errorf("failed to checkout main: %w", err)
 	}
 
 	for relPath, content := range files {
 		fullPath := filepath.Join(g.WorkDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			return fmt.Errorf("failed to create directory for %s: %w", relPath, err)
+			return "", fmt.Errorf("failed to create directory for %s: %w", relPath, err)
 		}
 		if err := os.WriteFile(fullPath, content, 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", relPath, err)
+			return "", fmt.Errorf("failed to write %s: %w", relPath, err)
 		}
 		if _, err := w.Add(relPath); err != nil {
-			return fmt.Errorf("failed to stage %s: %w", relPath, err)
+			return "", fmt.Errorf("failed to stage %s: %w", relPath, err)
 		}
 	}
 
@@ -152,7 +152,7 @@ func (g *GitOps) CommitFiles(message string, files map[string][]byte, author str
 		author = "tinycloud-api"
 	}
 
-	_, err = w.Commit(message, &git.CommitOptions{
+	hash, err := w.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  author,
 			Email: fmt.Sprintf("%s@tinycloud.local", author),
@@ -160,7 +160,7 @@ func (g *GitOps) CommitFiles(message string, files map[string][]byte, author str
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
+		return "", fmt.Errorf("failed to commit: %w", err)
 	}
 
 	err = repo.Push(&git.PushOptions{
@@ -170,10 +170,10 @@ func (g *GitOps) CommitFiles(message string, files map[string][]byte, author str
 		},
 	})
 	if err != nil && err != git.NoErrAlreadyUpToDate {
-		return fmt.Errorf("failed to push commit: %w", err)
+		return "", fmt.Errorf("failed to push commit: %w", err)
 	}
 
-	return nil
+	return hash.String(), nil
 }
 
 // UpdateDeploymentReplicas sets replicas in apps/{app}/deployment.yaml and commits

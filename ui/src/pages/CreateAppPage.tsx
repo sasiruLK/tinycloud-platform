@@ -143,7 +143,7 @@ export function CreateAppPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Create Application</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Build a GitHub repository, push it to GHCR, then deploy it via GitOps.
+          Build a GitHub repository on the ARM builder, push it to OCIR, then deploy it via GitOps.
         </p>
       </div>
 
