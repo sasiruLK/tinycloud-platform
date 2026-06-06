@@ -90,7 +90,9 @@ func TestGenerateAppFiles(t *testing.T) {
 	assert.Contains(t, sync, "sync-ocir-creds")
 	assert.Contains(t, sync, "ocir-creds-reader")
 	assert.Contains(t, sync, "namespace: argocd")
+	assert.Contains(t, sync, `sync-wave: "-2"`)
 	assert.Contains(t, sync, "sync-wave: \"-1\"")
+	assert.NotContains(t, sync, "argocd.argoproj.io/hook: PreSync")
 
 	updater := string(files["argocd/imageupdater-demo-app.yaml"])
 	assert.Contains(t, updater, "name: demo-app")
