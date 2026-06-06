@@ -20,6 +20,25 @@ function formatLogLine(line: BuildLogLine): string {
   return `[${stream}] ${trimmed}`;
 }
 
+function deployStatusLabel(status?: string): string {
+  switch (status) {
+    case "gitops_committed":
+      return "GitOps committed";
+    case "pending_argocd_application":
+      return "Waiting for Argo CD";
+    case "argocd_progressing":
+      return "Argo CD progressing";
+    case "argocd_out_of_sync":
+      return "Argo CD out of sync";
+    case "degraded":
+      return "Degraded";
+    case "deployed":
+      return "Deployed";
+    default:
+      return status || "-";
+  }
+}
+
 export function BuildPage() {
   const { id } = useParams<{ id: string }>();
   const [build, setBuild] = useState<BuildJob | null>(null);
@@ -150,21 +169,59 @@ export function BuildPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Deployment Lifecycle</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-sm text-muted-foreground">Deploy</div>
+            <div className="text-sm">{deployStatusLabel(build.deployStatus)}</div>
+          </div>
+          <div>
+            <div className="text-sm text-muted-foreground">GitOps Commit</div>
+            <code className="text-sm">{build.gitopsCommitSha ? `${build.gitopsCommitSha.slice(0, 12)}...` : "-"}</code>
+          </div>
+          <div>
+            <div className="text-sm text-muted-foreground">Argo CD</div>
+            <div className="text-sm">
+              {build.argoSyncStatus || "-"}{build.argoHealth ? ` / ${build.argoHealth}` : ""}
+            </div>
+          </div>
+          <div>
+            <div className="text-sm text-muted-foreground">GitOps Path</div>
+            <code className="text-xs break-all">{build.gitopsPath || "-"}</code>
+          </div>
+        </CardContent>
+      </Card>
+
       {build.error && (
         <ErrorAlert message={build.error} />
+      )}
+
+      {build.verificationError && (
+        <ErrorAlert message={build.verificationError} />
       )}
 
       {status === "succeeded" && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30">
           <p className="text-sm font-medium text-green-800 dark:text-green-200">
-            Build succeeded and manifests were committed to GitOps.
+            Build succeeded. {deployStatusLabel(build.deployStatus)}
           </p>
           {build.appName && (
             <Button asChild size="sm" className="mt-3">
-              <Link to={`/apps/${build.appName}?pending=1`}>
+              <Link to={build.deployStatus === "deployed" ? `/apps/${build.appName}` : `/apps/${build.appName}?pending=1`}>
                 <ExternalLink className="h-4 w-4 mr-1" />
                 Open App
               </Link>
+            </Button>
+          )}
+          {build.appUrl && (
+            <Button asChild size="sm" variant="outline" className="mt-3 ml-2">
+              <a href={build.appUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4 mr-1" />
+                Open Route
+              </a>
             </Button>
           )}
         </div>

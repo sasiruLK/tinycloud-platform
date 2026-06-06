@@ -153,13 +153,18 @@ func (s *Server) updateRunnerStatus(c *fiber.Ctx) error {
 	}
 
 	if req.Status == types.StatusSucceeded {
-		if err := s.commitGitOps(c.Params("id"), req); err != nil {
+		commitSHA, gitopsPath, appURL, err := s.commitGitOps(c.Params("id"), req)
+		if err != nil {
 			_ = s.store.UpdateRunnerStatus(context.Background(), c.Params("id"), types.RunnerStatusRequest{
 				Status: types.StatusFailed,
 				Error:  "image built but GitOps commit failed: " + err.Error(),
 			})
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to commit GitOps manifests"})
 		}
+		req.GitOpsCommitSHA = commitSHA
+		req.GitOpsPath = gitopsPath
+		req.AppURL = appURL
+		req.DeployStatus = "gitops_committed"
 	}
 
 	if err := s.store.UpdateRunnerStatus(context.Background(), c.Params("id"), req); err != nil {
@@ -168,10 +173,10 @@ func (s *Server) updateRunnerStatus(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-func (s *Server) commitGitOps(jobID string, req types.RunnerStatusRequest) error {
+func (s *Server) commitGitOps(jobID string, req types.RunnerStatusRequest) (string, string, string, error) {
 	job, err := s.store.GetJob(context.Background(), jobID)
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
 	appReq := manifests.CreateAppRequest{
 		Name:     job.AppName,
@@ -183,7 +188,13 @@ func (s *Server) commitGitOps(jobID string, req types.RunnerStatusRequest) error
 	}
 	files := manifests.GenerateAppFiles(appReq)
 	delete(files, fmt.Sprintf("argocd/imageupdater-%s.yaml", job.AppName))
-	return s.git.CommitFiles(fmt.Sprintf("onboard(%s): deploy build %s", job.AppName, short(req.Tag)), files, "tinycloud-build-coordinator")
+	commitSHA, err := s.git.CommitFiles(fmt.Sprintf("onboard(%s): deploy build %s", job.AppName, short(req.Tag)), files, "tinycloud-build-coordinator")
+	if err != nil {
+		return "", "", "", err
+	}
+	gitopsPath := fmt.Sprintf("apps/%s", job.AppName)
+	appURL := fmt.Sprintf("%s/apps/%s/", manifests.PlatformBaseURL, job.AppName)
+	return commitSHA, gitopsPath, appURL, nil
 }
 
 func normalizeAndValidateBuildRequest(req *types.CreateBuildRequest) error {

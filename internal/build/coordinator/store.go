@@ -51,6 +51,13 @@ func (s *Store) migrate(ctx context.Context) error {
 			replicas INTEGER NOT NULL,
 			port INTEGER NOT NULL,
 			env_json TEXT NOT NULL DEFAULT '{}',
+			gitops_commit_sha TEXT NOT NULL DEFAULT '',
+			gitops_path TEXT NOT NULL DEFAULT '',
+			deploy_status TEXT NOT NULL DEFAULT '',
+			argo_sync_status TEXT NOT NULL DEFAULT '',
+			argo_health TEXT NOT NULL DEFAULT '',
+			app_url TEXT NOT NULL DEFAULT '',
+			verification_error TEXT NOT NULL DEFAULT '',
 			error TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
@@ -74,12 +81,63 @@ func (s *Store) migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := s.ensureBuildJobColumns(ctx); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Store) ensureBuildJobColumns(ctx context.Context) error {
+	columns, err := s.buildJobColumns(ctx)
+	if err != nil {
+		return err
+	}
+	additions := map[string]string{
+		"gitops_commit_sha":  "TEXT NOT NULL DEFAULT ''",
+		"gitops_path":        "TEXT NOT NULL DEFAULT ''",
+		"deploy_status":      "TEXT NOT NULL DEFAULT ''",
+		"argo_sync_status":   "TEXT NOT NULL DEFAULT ''",
+		"argo_health":        "TEXT NOT NULL DEFAULT ''",
+		"app_url":            "TEXT NOT NULL DEFAULT ''",
+		"verification_error": "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, ddl := range additions {
+		if columns[name] {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE build_jobs ADD COLUMN %s %s", name, ddl)); err != nil {
+			return fmt.Errorf("failed to add build_jobs.%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) buildJobColumns(ctx context.Context) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(build_jobs)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
 }
 
 func (s *Store) GetJobByAppName(ctx context.Context, appName string) (*types.BuildJob, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, app_name, repo_url, ref, commit_sha, framework, image, tag,
-		status, attempts, replicas, port, env_json, error, created_at, updated_at, started_at, finished_at
+		status, attempts, replicas, port, env_json, gitops_commit_sha, gitops_path, deploy_status,
+		argo_sync_status, argo_health, app_url, verification_error, error, created_at, updated_at, started_at, finished_at
 		FROM build_jobs WHERE app_name = ?`, appName)
 	job, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -115,7 +173,8 @@ func (s *Store) CreateJob(ctx context.Context, job *types.BuildJob) error {
 
 func (s *Store) GetJob(ctx context.Context, id string) (*types.BuildJob, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, app_name, repo_url, ref, commit_sha, framework, image, tag,
-		status, attempts, replicas, port, env_json, error, created_at, updated_at, started_at, finished_at
+		status, attempts, replicas, port, env_json, gitops_commit_sha, gitops_path, deploy_status,
+		argo_sync_status, argo_health, app_url, verification_error, error, created_at, updated_at, started_at, finished_at
 		FROM build_jobs WHERE id = ?`, id)
 	return scanJob(row)
 }
@@ -128,7 +187,8 @@ func (s *Store) ClaimNextQueuedJob(ctx context.Context, maxAttempts int) (*types
 	defer tx.Rollback()
 
 	row := tx.QueryRowContext(ctx, `SELECT id, app_name, repo_url, ref, commit_sha, framework, image, tag,
-		status, attempts, replicas, port, env_json, error, created_at, updated_at, started_at, finished_at
+		status, attempts, replicas, port, env_json, gitops_commit_sha, gitops_path, deploy_status,
+		argo_sync_status, argo_health, app_url, verification_error, error, created_at, updated_at, started_at, finished_at
 		FROM build_jobs WHERE status = ? AND attempts < ? ORDER BY created_at ASC LIMIT 1`,
 		types.StatusQueued, maxAttempts,
 	)
@@ -191,12 +251,16 @@ func (s *Store) UpdateRunnerStatus(ctx context.Context, jobID string, req types.
 	switch req.Status {
 	case types.StatusRunning:
 		_, err := s.db.ExecContext(ctx, `UPDATE build_jobs SET commit_sha = ?, framework = ?,
+			deploy_status = '', argo_sync_status = '', argo_health = '', verification_error = '',
 			updated_at = ? WHERE id = ?`, req.CommitSHA, req.Framework, formatTime(now), jobID)
 		return err
 	case types.StatusSucceeded:
 		_, err := s.db.ExecContext(ctx, `UPDATE build_jobs SET status = ?, commit_sha = ?, framework = ?,
-			image = ?, tag = ?, error = '', updated_at = ?, finished_at = ? WHERE id = ?`,
-			types.StatusSucceeded, req.CommitSHA, req.Framework, req.Image, req.Tag, formatTime(now), formatTime(now), jobID)
+			image = ?, tag = ?, gitops_commit_sha = ?, gitops_path = ?, deploy_status = ?,
+			app_url = ?, verification_error = ?, error = '', updated_at = ?, finished_at = ? WHERE id = ?`,
+			types.StatusSucceeded, req.CommitSHA, req.Framework, req.Image, req.Tag, req.GitOpsCommitSHA,
+			req.GitOpsPath, req.DeployStatus, req.AppURL, req.VerificationError,
+			formatTime(now), formatTime(now), jobID)
 		return err
 	case types.StatusFailed:
 		_, err := s.db.ExecContext(ctx, `UPDATE build_jobs SET status = ?, error = ?, updated_at = ?,
@@ -216,7 +280,9 @@ func scanJob(row rowScanner) (*types.BuildJob, error) {
 	var envJSON, created, updated string
 	var started, finished sql.NullString
 	if err := row.Scan(&job.ID, &job.AppName, &job.RepoURL, &job.Ref, &job.CommitSHA, &job.Framework,
-		&job.Image, &job.Tag, &job.Status, &job.Attempts, &job.Replicas, &job.Port, &envJSON, &job.Error,
+		&job.Image, &job.Tag, &job.Status, &job.Attempts, &job.Replicas, &job.Port, &envJSON,
+		&job.GitOpsCommitSHA, &job.GitOpsPath, &job.DeployStatus, &job.ArgoSyncStatus, &job.ArgoHealth,
+		&job.AppURL, &job.VerificationError, &job.Error,
 		&created, &updated, &started, &finished); err != nil {
 		return nil, err
 	}
