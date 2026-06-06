@@ -316,14 +316,18 @@ kind: ServiceAccount
 metadata:
   name: pull-secret-sync
   annotations:
-    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-3"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: pull-secret-sync
   annotations:
-    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-3"
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -334,7 +338,9 @@ kind: RoleBinding
 metadata:
   name: pull-secret-sync
   annotations:
-    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -344,16 +350,31 @@ subjects:
     name: pull-secret-sync
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRole
 metadata:
-  name: {{APP_NAME}}-read-ocir-creds
-  namespace: argocd
+  name: {{APP_NAME}}-ocir-creds-reader
   annotations:
-    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-3"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["ocir-creds"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{APP_NAME}}-ocir-creds-reader
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ocir-creds-reader
+  kind: ClusterRole
+  name: {{APP_NAME}}-ocir-creds-reader
 subjects:
   - kind: ServiceAccount
     name: pull-secret-sync
@@ -364,6 +385,8 @@ kind: Job
 metadata:
   name: sync-ocir-creds
   annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   ttlSecondsAfterFinished: 300

@@ -88,11 +88,13 @@ func TestGenerateAppFiles(t *testing.T) {
 
 	sync := string(files["apps/demo-app/pull-secret-sync.yaml"])
 	assert.Contains(t, sync, "sync-ocir-creds")
-	assert.Contains(t, sync, "ocir-creds-reader")
-	assert.Contains(t, sync, "namespace: argocd")
-	assert.Contains(t, sync, `sync-wave: "-2"`)
+	assert.Contains(t, sync, "demo-app-ocir-creds-reader")
+	assert.Contains(t, sync, "kind: ClusterRole")
+	assert.Contains(t, sync, "kind: ClusterRoleBinding")
+	assert.Contains(t, sync, "resourceNames: [\"ocir-creds\"]")
+	assert.Contains(t, sync, "argocd.argoproj.io/hook: PreSync")
+	assert.Contains(t, sync, `sync-wave: "-3"`)
 	assert.Contains(t, sync, "sync-wave: \"-1\"")
-	assert.NotContains(t, sync, "argocd.argoproj.io/hook: PreSync")
 
 	updater := string(files["argocd/imageupdater-demo-app.yaml"])
 	assert.Contains(t, updater, "name: demo-app")
