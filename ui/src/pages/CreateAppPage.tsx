@@ -6,18 +6,19 @@ import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getPlatformAppUrl } from "@/lib/tinycloud";
 import { ChevronDown, ChevronUp, Plus, Rocket, GitBranch } from "lucide-react";
 import type { GitHubRepo } from "@/types/api";
 
 const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
 export function CreateAppPage() {
+  const port = 8080;
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [ref, setRef] = useState("main");
   const [replicas, setReplicas] = useState(1);
-  const [port, setPort] = useState(8080);
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,9 +34,7 @@ export function CreateAppPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const nameValid = name.length > 0 && name.length <= 63 && APP_NAME_PATTERN.test(name);
-  const previewUrl = nameValid
-    ? `https://tinycloud-platform.duckdns.org/apps/${name}/`
-    : null;
+  const previewUrl = nameValid ? getPlatformAppUrl(name) : null;
 
   // Fetch GitHub repos on mount
   useEffect(() => {
@@ -248,14 +247,12 @@ export function CreateAppPage() {
                 <Input
                   id="port"
                   type="number"
-                  min={1}
-                  max={65535}
                   value={port}
-                  onChange={(e) => setPort(Number(e.target.value))}
-                  required
+                  readOnly
+                  disabled
                 />
                 <p className="text-xs text-muted-foreground">
-                  Your app must listen on <code>0.0.0.0:$PORT</code> (set via PORT env var). For Go/Node.js the platform auto-patches common patterns.
+                  TinyCloud standardizes deployed apps on <code>8080</code> with a required <code>/healthz</code> endpoint. The runtime manifest sets <code>PORT=8080</code>.
                 </p>
               </div>
             </div>

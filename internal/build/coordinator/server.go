@@ -193,7 +193,7 @@ func (s *Server) commitGitOps(jobID string, req types.RunnerStatusRequest) (stri
 		return "", "", "", err
 	}
 	gitopsPath := fmt.Sprintf("apps/%s", job.AppName)
-	appURL := fmt.Sprintf("%s/apps/%s/", manifests.PlatformBaseURL, job.AppName)
+	appURL := manifests.AppBaseURL(job.AppName)
 	return commitSHA, gitopsPath, appURL, nil
 }
 
@@ -207,9 +207,7 @@ func normalizeAndValidateBuildRequest(req *types.CreateBuildRequest) error {
 	if req.Ref == "" {
 		req.Ref = "main"
 	}
-	if req.Port == 0 {
-		req.Port = 8080
-	}
+	req.Port = 8080
 	if req.Replicas == 0 {
 		req.Replicas = 1
 	}

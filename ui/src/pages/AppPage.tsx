@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { getPlatformAppUrl } from "@/lib/tinycloud";
 import { RefreshCw, GitBranch, FolderOpen, RotateCcw, Loader2, ExternalLink, PauseCircle } from "lucide-react";
 
 export function AppPage() {
@@ -272,12 +273,12 @@ export function AppPage() {
               Public URL
             </div>
             <a
-              href={`https://tinycloud-platform.duckdns.org/apps/${app.name}/`}
+              href={getPlatformAppUrl(app.name)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-primary hover:underline break-all"
             >
-              https://tinycloud-platform.duckdns.org/apps/{app.name}/
+              {getPlatformAppUrl(app.name)}
             </a>
           </div>
 

@@ -45,6 +45,26 @@ func TestValidateCreateAppRequest(t *testing.T) {
 			req:     CreateAppRequest{Name: "tinycloud-api", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
+		{
+			name:    "non-standard port",
+			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 3000},
+			wantErr: true,
+		},
+		{
+			name: "fixed PORT env is allowed",
+			req: CreateAppRequest{
+				Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0",
+				Replicas: 1, Port: 8080, Env: map[string]string{"PORT": "8080"},
+			},
+		},
+		{
+			name: "mismatched PORT env is rejected",
+			req: CreateAppRequest{
+				Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0",
+				Replicas: 1, Port: 8080, Env: map[string]string{"PORT": "3000"},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -62,7 +82,7 @@ func TestValidateCreateAppRequest(t *testing.T) {
 func TestGenerateAppFiles(t *testing.T) {
 	req := CreateAppRequest{
 		Name: "demo-app", Image: "ghcr.io/user/demo", Tag: "2.1.0",
-		Replicas: 3, Port: 3000,
+		Replicas: 3, Port: 8080,
 		Env: map[string]string{"LOG_LEVEL": "debug"},
 	}
 
@@ -72,15 +92,21 @@ func TestGenerateAppFiles(t *testing.T) {
 	deployment := string(files["apps/demo-app/deployment.yaml"])
 	assert.Contains(t, deployment, "name: demo-app")
 	assert.Contains(t, deployment, "replicas: 3")
-	assert.Contains(t, deployment, "containerPort: 3000")
+	assert.Contains(t, deployment, "containerPort: 8080")
+	assert.Contains(t, deployment, "name: PORT")
+	assert.Contains(t, deployment, `value: "8080"`)
+	assert.Contains(t, deployment, "path: /healthz")
 	assert.Contains(t, deployment, "ghcr.io/user/demo:2.1.0")
 	assert.Contains(t, deployment, "ocir-creds")
 	assert.Contains(t, deployment, `name: LOG_LEVEL`)
 	assert.Contains(t, deployment, `value: "debug"`)
 
 	np := string(files["apps/demo-app/network-policies.yaml"])
-	assert.Contains(t, np, "port: 3000")
+	assert.Contains(t, np, "port: 8080")
 	assert.Contains(t, np, "k8s-app: kube-dns")
+
+	service := string(files["apps/demo-app/service.yaml"])
+	assert.Contains(t, service, "port: 80")
 
 	kustomize := string(files["apps/demo-app/kustomization.yaml"])
 	assert.Contains(t, kustomize, "namespace: demo-app")
@@ -99,4 +125,8 @@ func TestGenerateAppFiles(t *testing.T) {
 	updater := string(files["argocd/imageupdater-demo-app.yaml"])
 	assert.Contains(t, updater, "name: demo-app")
 	assert.Contains(t, updater, "imageName: ghcr.io/user/demo")
+}
+
+func TestAppBaseURL(t *testing.T) {
+	assert.Equal(t, "https://demo-app.tinycloud-platform.duckdns.org/", AppBaseURL("demo-app"))
 }
