@@ -44,14 +44,17 @@ type CreateAppResponse struct {
 }
 
 // PlatformHost is the external platform hostname.
-const PlatformHost = "tinycloud-platform.duckdns.org"
+const PlatformHost = "tinycloud.sasiru.lk"
+
+// AppDomain is the external application wildcard domain.
+const AppDomain = "sasiru.lk"
 
 // PlatformBaseURL is the external platform URL for platform links.
 const PlatformBaseURL = "https://" + PlatformHost
 
 // AppBaseURL returns the public application URL.
 func AppBaseURL(name string) string {
-	return fmt.Sprintf("https://%s.%s/", strings.TrimSpace(name), PlatformHost)
+	return fmt.Sprintf("https://%s.%s/", strings.TrimSpace(name), AppDomain)
 }
 
 // ValidateCreateAppRequest validates onboarding input

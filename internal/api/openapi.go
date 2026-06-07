@@ -598,7 +598,7 @@ func OpenAPISpec(c *fiber.Ctx) error {
 								"deployStatus":      map[string]interface{}{"type": "string", "example": "deployed"},
 								"argoSyncStatus":    map[string]interface{}{"type": "string", "example": "Synced"},
 								"argoHealth":        map[string]interface{}{"type": "string", "example": "Healthy"},
-								"appUrl":            map[string]interface{}{"type": "string", "example": "https://my-app.tinycloud-platform.duckdns.org/"},
+								"appUrl":            map[string]interface{}{"type": "string", "example": "https://my-app.sasiru.lk/"},
 								"verificationError": map[string]interface{}{"type": "string"},
 								"error":             map[string]interface{}{"type": "string"},
 								"createdAt":         map[string]interface{}{"type": "string", "format": "date-time"},
