@@ -128,5 +128,5 @@ func TestGenerateAppFiles(t *testing.T) {
 }
 
 func TestAppBaseURL(t *testing.T) {
-	assert.Equal(t, "https://demo-app.tinycloud-platform.duckdns.org/", AppBaseURL("demo-app"))
+	assert.Equal(t, "https://demo-app.sasiru.lk/", AppBaseURL("demo-app"))
 }

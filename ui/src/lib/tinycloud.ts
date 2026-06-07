@@ -1,5 +1,5 @@
-const PLATFORM_HOST = "tinycloud-platform.duckdns.org";
+const APP_DOMAIN = "sasiru.lk";
 
 export function getPlatformAppUrl(name: string): string {
-  return `https://${name}.${PLATFORM_HOST}/`;
+  return `https://${name}.${APP_DOMAIN}/`;
 }
