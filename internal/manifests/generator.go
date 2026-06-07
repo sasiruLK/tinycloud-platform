@@ -9,12 +9,13 @@ import (
 const (
 	maxReplicas = 10
 	minReplicas = 0
+	appPort     = 8080
 )
 
 var (
-	appNameRegex = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
-	semverRegex  = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$`)
-	imageRegex   = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$`)
+	appNameRegex  = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	semverRegex   = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$`)
+	imageRegex    = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$`)
 	reservedNames = map[string]bool{
 		"tinycloud-api": true, "tinycloud-ui": true, "tinycloud-platform": true,
 		"nginx-proxy": true, "oauth2-proxy": true, "traefik": true,
@@ -42,8 +43,16 @@ type CreateAppResponse struct {
 	Status string `json:"status"`
 }
 
-// PlatformBaseURL is the external platform URL for app links
-const PlatformBaseURL = "https://tinycloud-platform.duckdns.org"
+// PlatformHost is the external platform hostname.
+const PlatformHost = "tinycloud-platform.duckdns.org"
+
+// PlatformBaseURL is the external platform URL for platform links.
+const PlatformBaseURL = "https://" + PlatformHost
+
+// AppBaseURL returns the public application URL.
+func AppBaseURL(name string) string {
+	return fmt.Sprintf("https://%s.%s/", strings.TrimSpace(name), PlatformHost)
+}
 
 // ValidateCreateAppRequest validates onboarding input
 func ValidateCreateAppRequest(req *CreateAppRequest) error {
@@ -88,8 +97,11 @@ func ValidateCreateAppRequest(req *CreateAppRequest) error {
 		return fmt.Errorf("replicas must be between 1 and %d", maxReplicas)
 	}
 
-	if req.Port < 1 || req.Port > 65535 {
-		return fmt.Errorf("port must be between 1 and 65535")
+	if req.Port != appPort {
+		return fmt.Errorf("port must be %d for the current platform contract", appPort)
+	}
+	if envPort, ok := req.Env["PORT"]; ok && strings.TrimSpace(envPort) != fmt.Sprintf("%d", appPort) {
+		return fmt.Errorf("env PORT must be %d for the current platform contract", appPort)
 	}
 
 	return nil
@@ -100,9 +112,7 @@ func NormalizeCreateAppRequest(req *CreateAppRequest) {
 	req.Name = strings.TrimSpace(req.Name)
 	req.Image = strings.TrimSpace(req.Image)
 	req.Tag = strings.TrimSpace(req.Tag)
-	if req.Port == 0 {
-		req.Port = 8080
-	}
+	req.Port = appPort
 	if req.Replicas == 0 {
 		req.Replicas = 1
 	}
@@ -121,13 +131,13 @@ func GenerateAppFiles(req CreateAppRequest) map[string][]byte {
 
 	appPath := fmt.Sprintf("apps/%s", req.Name)
 	files := map[string][]byte{
-		fmt.Sprintf("%s/namespace.yaml", appPath):              []byte(replaceVars(namespaceTemplate, vars)),
-		fmt.Sprintf("%s/deployment.yaml", appPath):             []byte(replaceVars(deploymentTemplate, vars)),
-		fmt.Sprintf("%s/service.yaml", appPath):                []byte(replaceVars(serviceTemplate, vars)),
-		fmt.Sprintf("%s/resource-quota.yaml", appPath):         []byte(replaceVars(resourceQuotaTemplate, vars)),
+		fmt.Sprintf("%s/namespace.yaml", appPath):            []byte(replaceVars(namespaceTemplate, vars)),
+		fmt.Sprintf("%s/deployment.yaml", appPath):           []byte(replaceVars(deploymentTemplate, vars)),
+		fmt.Sprintf("%s/service.yaml", appPath):              []byte(replaceVars(serviceTemplate, vars)),
+		fmt.Sprintf("%s/resource-quota.yaml", appPath):       []byte(replaceVars(resourceQuotaTemplate, vars)),
 		fmt.Sprintf("%s/network-policies.yaml", appPath):     []byte(replaceVars(networkPoliciesTemplate, vars)),
-		fmt.Sprintf("%s/pull-secret-sync.yaml", appPath):       []byte(replaceVars(pullSecretSyncTemplate, vars)),
-		fmt.Sprintf("%s/kustomization.yaml", appPath):          []byte(replaceVars(kustomizationTemplate, vars)),
+		fmt.Sprintf("%s/pull-secret-sync.yaml", appPath):     []byte(replaceVars(pullSecretSyncTemplate, vars)),
+		fmt.Sprintf("%s/kustomization.yaml", appPath):        []byte(replaceVars(kustomizationTemplate, vars)),
 		fmt.Sprintf("argocd/imageupdater-%s.yaml", req.Name): []byte(replaceVars(imageUpdaterTemplate, vars)),
 	}
 
@@ -135,12 +145,11 @@ func GenerateAppFiles(req CreateAppRequest) map[string][]byte {
 }
 
 func renderEnvVars(env map[string]string) string {
-	if len(env) == 0 {
-		return ""
-	}
-
 	keys := make([]string, 0, len(env))
 	for k := range env {
+		if k == "PORT" {
+			continue
+		}
 		keys = append(keys, k)
 	}
 	// stable order
@@ -154,6 +163,7 @@ func renderEnvVars(env map[string]string) string {
 
 	var b strings.Builder
 	b.WriteString("          env:\n")
+	fmt.Fprintf(&b, "            - name: PORT\n              value: %q\n", fmt.Sprintf("%d", appPort))
 	for _, k := range keys {
 		fmt.Fprintf(&b, "            - name: %s\n              value: %q\n", k, env[k])
 	}
@@ -205,6 +215,19 @@ spec:
           ports:
             - containerPort: {{PORT}}
               name: http
+{{ENV_VARS}}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
           resources:
             requests:
               cpu: 50m
@@ -212,7 +235,6 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
-{{ENV_VARS}}
 `
 
 const serviceTemplate = `apiVersion: v1

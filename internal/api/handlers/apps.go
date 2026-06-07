@@ -88,9 +88,7 @@ func (h *Handler) CreateApp(c *fiber.Ctx) error {
 	if req.Ref == "" {
 		req.Ref = "main"
 	}
-	if req.Port == 0 {
-		req.Port = 8080
-	}
+	req.Port = 8080
 	if req.Replicas == 0 {
 		req.Replicas = 1
 	}
@@ -551,7 +549,7 @@ func (h *Handler) enrichBuildDeploymentStatus(ctx context.Context, build *buildt
 		return
 	}
 	if build.AppURL == "" {
-		build.AppURL = fmt.Sprintf("%s/apps/%s/", manifests.PlatformBaseURL, build.AppName)
+		build.AppURL = manifests.AppBaseURL(build.AppName)
 	}
 	if build.Status != buildtypes.StatusSucceeded {
 		return
