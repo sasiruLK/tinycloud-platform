@@ -1,5 +1,7 @@
 # Phase 0 + Phase 1 Execution Notes
 
+> Historical execution log. For the current target design, use `docs/rebuild-oci-free-tier.md`.
+
 Executed 2026-05-30.
 
 ## Phase 0 — Done
@@ -15,9 +17,9 @@ Executed 2026-05-30.
 - [x] OCIR repository `tinycloud` created in tenancy root compartment
 - [x] Runner code: OCIR `IMAGE_PREFIX`, BuildKit registry cache, native ARM64 (no `--platform` on arm64)
 - [x] Manifest generator: `ocir-creds` for new app deployments
-- [x] build-vm bootstrapped on `monitoring-vm` (150.136.96.152 / 10.0.0.107)
+- [x] build-vm bootstrapped on `build-vm` (150.136.96.152 / 10.0.0.107)
 - [x] Coordinator + runner running on build-vm (native ARM64)
-- [x] AMD runner (1GB-vm-1) stopped
+- [x] AMD runner on `amd-utility-1` stopped
 - [x] `tinycloud-api` `BUILD_COORDINATOR_URL` → `http://10.0.0.107:8090` (gitops + live kubectl patch)
 - [x] `ocir-creds` secret in `argocd` and `tinycloud` namespaces
 
@@ -27,10 +29,10 @@ Executed 2026-05-30.
   ```bash
   cd tinycloud-platform && ./scripts/deploy/setup-ocir.sh
   ```
-- [ ] Copy coordinator SQLite from 1GB-vm-2 (10.0.0.55) if build history needed — SSH to that VM is blocked by motd; use OCI Console serial console or fix `/etc/motd` script
+- [ ] Copy coordinator SQLite from `amd-utility-2` (10.0.0.55) only if build history is worth keeping
 - [ ] Add `ocir-creds` to existing app namespaces (e.g. `htmx-go-counter`) before switching image refs from GHCR
 - [ ] Rebuild/redeploy existing apps to OCIR on next build
-- [ ] Stop coordinator on 1GB-vm-2 after verifying builds
+- [ ] Stop coordinator on `amd-utility-2` after verifying builds, or rebuild that host cleanly instead
 - [ ] Phase 2: offload monitoring stack from build-vm (VictoriaMetrics/Grafana/Loki still on Docker)
 
 ## Verify
@@ -46,6 +48,6 @@ sudo -u tinycloud docker buildx ls   # should show linux/arm64 native
 
 ## Rollback
 
-1. Re-enable AMD runner: `sudo systemctl enable --now tinycloud-build-runner` on 1GB-vm-1
+1. Re-enable AMD runner: `sudo systemctl enable --now tinycloud-build-runner` on `amd-utility-1`
 2. Revert API coordinator URL to `http://10.0.0.55:8090`
 3. Set `IMAGE_PREFIX` back to `ghcr.io/sasirulk` in runner env

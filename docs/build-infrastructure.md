@@ -1,14 +1,16 @@
 # TinyCloud Build Infrastructure
 
-Phase 1 moves the build pipeline to a **native ARM64 build-vm** (repurposed `monitoring-vm`, `10.0.0.107`) and pushes images to **OCIR**.
+> Historical migration note. For the current target topology, use `docs/rebuild-oci-free-tier.md` and `docs/rebuild-session-checklist.md`.
+
+Phase 1 moves the build pipeline to a **native ARM64 build-vm** (`10.0.0.107`) and pushes images to **OCIR**.
 
 ## Topology
 
 | Host | Private IP | Role |
 |------|------------|------|
-| build-vm (was monitoring-vm) | 10.0.0.107 | Coordinator + runner (native ARM64, Docker Buildx) |
+| build-vm | 10.0.0.107 | Coordinator + runner (native ARM64, Docker Buildx) |
 | k3s cluster | — | Pulls from OCIR via `ocir-creds` |
-| 1GB AMD VMs | 10.0.0.122 / 10.0.0.55 | Legacy QEMU builders — decommission after cutover |
+| amd-utility-1 / amd-utility-2 | 10.0.0.122 / 10.0.0.55 | Legacy AMD hosts outside the critical path |
 
 ## Flow
 

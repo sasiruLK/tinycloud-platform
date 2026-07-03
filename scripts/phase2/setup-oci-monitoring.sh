@@ -13,8 +13,9 @@ set -euo pipefail
 
 REGION="${OCI_REGION:-us-ashburn-1}"
 K3S_CONTROL="${K3S_CONTROL:-ubuntu@150.136.8.120}"
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/ssh-key-2026-05-16.key}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 OCI_RUN_HOST="${OCI_RUN_HOST:-auto}"
+OCI_CMD="${OCI_CMD:-}"
 TOPIC_NAME="${TOPIC_NAME:-tinycloud-alerts}"
 COMPARTMENT_ID="${COMPARTMENT_ID:-}"
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
@@ -22,6 +23,10 @@ DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
 export SUPPRESS_LABEL_WARNING="${SUPPRESS_LABEL_WARNING:-True}"
 
 oci_ok() {
+  if [[ -n "$OCI_CMD" ]]; then
+    bash -lc "$OCI_CMD os ns get" &>/dev/null
+    return
+  fi
   oci os ns get &>/dev/null
 }
 
@@ -47,7 +52,11 @@ run_oci() {
   local host="$1"
   shift
   if [[ "$host" == "local" ]]; then
-    oci "$@"
+    if [[ -n "$OCI_CMD" ]]; then
+      bash -lc "$OCI_CMD $(printf '%q ' "$@")"
+    else
+      oci "$@"
+    fi
   else
     local quoted=()
     local arg
@@ -74,6 +83,9 @@ if [[ "$HOST" == "none" ]]; then
 fi
 
 echo "Using OCI CLI via: $HOST"
+if [[ "$HOST" == "local" && -n "$OCI_CMD" ]]; then
+  echo "Local OCI wrapper: $OCI_CMD"
+fi
 
 TEN=$(read_oci_config "$HOST" tenancy)
 COMP="${COMPARTMENT_ID:-$TEN}"

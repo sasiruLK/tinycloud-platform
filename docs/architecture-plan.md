@@ -1,5 +1,7 @@
 # TinyCloud Infrastructure Architecture Plan
 
+> Historical planning document. For the current rebuild target, use `docs/rebuild-oci-free-tier.md` and `docs/infrastructure-runbook.md`.
+
 ## Executive Summary
 
 Current bottlenecks identified:

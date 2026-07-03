@@ -93,7 +93,7 @@ func (h *Handler) CreateApp(c *fiber.Ctx) error {
 		req.Replicas = 1
 	}
 	if err := manifests.ValidateCreateAppRequest(&manifests.CreateAppRequest{
-		Name: req.AppName, Image: "ghcr.io/placeholder/app", Tag: "1.0.0", Replicas: req.Replicas, Port: req.Port,
+		Name: req.AppName, Image: "iad.ocir.io/placeholder/app", Tag: "1.0.0", Replicas: req.Replicas, Port: req.Port,
 	}); err != nil {
 		return response.JSONError(c, fiber.StatusBadRequest, "bad_request", err.Error())
 	}

@@ -35,7 +35,7 @@ type Config struct {
 	WorkDir        string
 	// ImagePrefix is the registry path without tag, e.g. iad.ocir.io/idzghas4xwzv/tinycloud
 	ImagePrefix string
-	// Registry + Owner are legacy GHCR-style fields used when ImagePrefix is empty.
+	// Registry + Owner are fallback fields used when ImagePrefix is empty.
 	Registry string
 	Owner    string
 	// BuildPlatform sets buildx --platform (default linux/arm64). Empty on native ARM64 runner.
@@ -71,11 +71,11 @@ func resolveImagePrefix(cfg Config) string {
 	}
 	registry := cfg.Registry
 	if registry == "" {
-		registry = "ghcr.io"
+		registry = "iad.ocir.io"
 	}
 	owner := strings.Trim(cfg.Owner, "/")
 	if owner == "" {
-		owner = "sasirulk"
+		owner = "idzghas4xwzv/tinycloud"
 	}
 	return registry + "/" + owner
 }

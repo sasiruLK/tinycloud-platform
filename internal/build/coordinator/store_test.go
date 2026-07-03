@@ -34,12 +34,12 @@ func TestStoreCreateClaimUpdateAndLogs(t *testing.T) {
 	require.Equal(t, int64(1), logs[0].Sequence)
 
 	require.NoError(t, store.UpdateRunnerStatus(ctx, job.ID, types.RunnerStatusRequest{
-		Status: types.StatusSucceeded, CommitSHA: "abc", Framework: "go", Image: "ghcr.io/a/b", Tag: "abc",
+		Status: types.StatusSucceeded, CommitSHA: "abc", Framework: "go", Image: "iad.ocir.io/a/tinycloud/b", Tag: "abc",
 	}))
 	done, err := store.GetJob(ctx, job.ID)
 	require.NoError(t, err)
 	require.Equal(t, types.StatusSucceeded, done.Status)
-	require.Equal(t, "ghcr.io/a/b", done.Image)
+	require.Equal(t, "iad.ocir.io/a/tinycloud/b", done.Image)
 }
 
 func TestStoreDeleteJobAllowsRetry(t *testing.T) {

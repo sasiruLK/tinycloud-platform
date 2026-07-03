@@ -16,51 +16,51 @@ func TestValidateCreateAppRequest(t *testing.T) {
 		{
 			name: "valid",
 			req: CreateAppRequest{
-				Name: "my-app", Image: "ghcr.io/user/my-app", Tag: "1.0.0",
+				Name: "my-app", Image: "iad.ocir.io/user/tinycloud/my-app", Tag: "1.0.0",
 				Replicas: 2, Port: 8080,
 			},
 		},
 		{
 			name:    "invalid name",
-			req:     CreateAppRequest{Name: "My_App", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 8080},
+			req:     CreateAppRequest{Name: "My_App", Image: "iad.ocir.io/user/tinycloud/app", Tag: "1.0.0", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "image with tag",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app:1.0.0", Tag: "1.0.0", Replicas: 1, Port: 8080},
+			req:     CreateAppRequest{Name: "my-app", Image: "iad.ocir.io/user/tinycloud/app:1.0.0", Tag: "1.0.0", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "invalid semver",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "latest", Replicas: 1, Port: 8080},
+			req:     CreateAppRequest{Name: "my-app", Image: "iad.ocir.io/user/tinycloud/app", Tag: "latest", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "replicas too high",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 11, Port: 8080},
+			req:     CreateAppRequest{Name: "my-app", Image: "iad.ocir.io/user/tinycloud/app", Tag: "1.0.0", Replicas: 11, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "reserved name",
-			req:     CreateAppRequest{Name: "tinycloud-api", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 8080},
+			req:     CreateAppRequest{Name: "tinycloud-api", Image: "iad.ocir.io/user/tinycloud/app", Tag: "1.0.0", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "non-standard port",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 3000},
+			req:     CreateAppRequest{Name: "my-app", Image: "iad.ocir.io/user/tinycloud/app", Tag: "1.0.0", Replicas: 1, Port: 3000},
 			wantErr: true,
 		},
 		{
 			name: "fixed PORT env is allowed",
 			req: CreateAppRequest{
-				Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0",
+				Name: "my-app", Image: "iad.ocir.io/user/tinycloud/app", Tag: "1.0.0",
 				Replicas: 1, Port: 8080, Env: map[string]string{"PORT": "8080"},
 			},
 		},
 		{
 			name: "mismatched PORT env is rejected",
 			req: CreateAppRequest{
-				Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0",
+				Name: "my-app", Image: "iad.ocir.io/user/tinycloud/app", Tag: "1.0.0",
 				Replicas: 1, Port: 8080, Env: map[string]string{"PORT": "3000"},
 			},
 			wantErr: true,
@@ -81,7 +81,7 @@ func TestValidateCreateAppRequest(t *testing.T) {
 
 func TestGenerateAppFiles(t *testing.T) {
 	req := CreateAppRequest{
-		Name: "demo-app", Image: "ghcr.io/user/demo", Tag: "2.1.0",
+		Name: "demo-app", Image: "iad.ocir.io/user/tinycloud/demo", Tag: "2.1.0",
 		Replicas: 3, Port: 8080,
 		Env: map[string]string{"LOG_LEVEL": "debug"},
 	}
@@ -96,7 +96,7 @@ func TestGenerateAppFiles(t *testing.T) {
 	assert.Contains(t, deployment, "name: PORT")
 	assert.Contains(t, deployment, `value: "8080"`)
 	assert.Contains(t, deployment, "path: /healthz")
-	assert.Contains(t, deployment, "ghcr.io/user/demo:2.1.0")
+	assert.Contains(t, deployment, "iad.ocir.io/user/tinycloud/demo:2.1.0")
 	assert.Contains(t, deployment, "ocir-creds")
 	assert.Contains(t, deployment, `name: LOG_LEVEL`)
 	assert.Contains(t, deployment, `value: "debug"`)
@@ -124,7 +124,7 @@ func TestGenerateAppFiles(t *testing.T) {
 
 	updater := string(files["argocd/imageupdater-demo-app.yaml"])
 	assert.Contains(t, updater, "name: demo-app")
-	assert.Contains(t, updater, "imageName: ghcr.io/user/demo")
+	assert.Contains(t, updater, "imageName: iad.ocir.io/user/tinycloud/demo")
 }
 
 func TestAppBaseURL(t *testing.T) {

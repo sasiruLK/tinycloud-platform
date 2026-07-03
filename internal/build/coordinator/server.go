@@ -218,7 +218,7 @@ func normalizeAndValidateBuildRequest(req *types.CreateBuildRequest) error {
 		return fmt.Errorf("repoUrl must be an https GitHub repository URL")
 	}
 	return manifests.ValidateCreateAppRequest(&manifests.CreateAppRequest{
-		Name: req.AppName, Image: "ghcr.io/placeholder/app", Tag: "1.0.0", Replicas: req.Replicas, Port: req.Port,
+		Name: req.AppName, Image: "iad.ocir.io/placeholder/app", Tag: "1.0.0", Replicas: req.Replicas, Port: req.Port,
 	})
 }
 
