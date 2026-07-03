@@ -74,6 +74,10 @@ Note: some guests still report old OS hostnames over SSH. Treat OCI instance dis
    kubectl --kubeconfig ~/.kube/tinycloud-oci.yaml -n tinycloud rollout status deploy/tinycloud-ui
    curl -I https://tinycloud.sasiru.lk/
    ```
+   Or run the full verifier:
+   ```bash
+   ./scripts/verify-ocir-argocd.sh
+   ```
 8. Prove one user app deploy from OCIR through GitOps:
    - build and push an ARM64 image to `iad.ocir.io/idzghas4xwzv/tinycloud/<app>:<commit-sha>`
    - create or update `gitops-lab/apps/<app>`
@@ -88,6 +92,8 @@ Updated on 2026-07-03:
 - `gitops-lab` platform API/UI manifests now use `ocir-creds`; no active platform API/UI render path points at GHCR or `latest`.
 - GitOps OCIR switch was committed and pushed to `origin/main`:
   - `03ab673 feat: switch gitops manifests to ocir`
+- Platform rebuild and verification tooling was committed and pushed to `origin/main`:
+  - `8130405 feat: prepare ocir gitops rebuild path`
 - Local render checks passed:
   ```bash
   kubectl kustomize apps/tinycloud-api
