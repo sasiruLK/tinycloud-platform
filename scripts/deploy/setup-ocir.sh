@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Create OCIR repo, k8s pull secrets, and docker login on build-vm.
+# Create OCIR repo, k8s pull secrets, and optional docker login on build-vm.
 #
 # Usage:
-#   ./scripts/deploy/setup-ocir.sh                    # local OCI CLI (preferred) + SSH to k3s/build-vm
+#   ./scripts/deploy/setup-ocir.sh                    # local OCI CLI (preferred) + SSH to k3s
 #   OCI_RUN_HOST=ubuntu@150.136.8.120 ./scripts/...   # force remote OCI CLI on k3s-control
 set -euo pipefail
 
@@ -12,13 +12,19 @@ NAMESPACE="${OCIR_NAMESPACE:-idzghas4xwzv}"
 REPO="${OCIR_REPO:-tinycloud}"
 BUILD_VM="${BUILD_VM:-ubuntu@150.136.96.152}"
 K3S_CONTROL="${K3S_CONTROL:-ubuntu@150.136.8.120}"
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/ssh-key-2026-05-16.key}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 KUBECTL="${KUBECTL:-sudo kubectl}"
 OCI_RUN_HOST="${OCI_RUN_HOST:-auto}"
+OCI_CMD="${OCI_CMD:-}"
+SKIP_BUILD_VM_LOGIN="${SKIP_BUILD_VM_LOGIN:-0}"
 
 export SUPPRESS_LABEL_WARNING="${SUPPRESS_LABEL_WARNING:-True}"
 
 oci_ok() {
+  if [[ -n "$OCI_CMD" ]]; then
+    bash -lc "$OCI_CMD os ns get" &>/dev/null
+    return
+  fi
   oci os ns get &>/dev/null
 }
 
@@ -44,7 +50,11 @@ run_oci() {
   local host="$1"
   shift
   if [[ "$host" == "local" ]]; then
-    oci "$@"
+    if [[ -n "$OCI_CMD" ]]; then
+      bash -lc "$OCI_CMD $(printf '%q ' "$@")"
+    else
+      oci "$@"
+    fi
   else
     # Pass args safely over SSH (avoids breaking JMESPath quotes in $*)
     local quoted=()
@@ -110,6 +120,9 @@ EOF
 fi
 
 echo "Using OCI CLI via: $HOST"
+if [[ "$HOST" == "local" && -n "$OCI_CMD" ]]; then
+  echo "Local OCI wrapper: $OCI_CMD"
+fi
 
 TEN=$(read_oci_config "$HOST" tenancy)
 USER_ID=$(read_oci_config "$HOST" user)
@@ -141,7 +154,7 @@ else
   fi
 fi
 
-echo "--- Auth token, k8s ocir-creds, docker login ---"
+echo "--- Auth token and k8s ocir-creds ---"
 K8S_HOST="$HOST"
 [[ "$K8S_HOST" == "local" ]] && K8S_HOST="$K3S_CONTROL"
 
@@ -182,6 +195,13 @@ with open(path, "w") as f:
     json.dump(cfg, f)
 for ns in ("argocd", "tinycloud"):
     proc = subprocess.run(
+        ["sudo", "kubectl", "create", "namespace", ns, "--dry-run=client", "-o", "yaml"],
+        check=True, capture_output=True, text=True,
+    )
+    apply = subprocess.run(["sudo", "kubectl", "apply", "-f", "-"], input=proc.stdout, text=True, capture_output=True)
+    if apply.returncode != 0:
+        raise SystemExit(apply.stderr)
+    proc = subprocess.run(
         ["sudo", "kubectl", "create", "secret", "generic", "ocir-creds",
          f"--from-file=.dockerconfigjson={path}", "-n", ns,
          "--type=kubernetes.io/dockerconfigjson",
@@ -195,6 +215,14 @@ for ns in ("argocd", "tinycloud"):
 os.remove(path)
 PY
 REMOTE
+
+if [[ "$SKIP_BUILD_VM_LOGIN" == "1" || -z "$BUILD_VM" ]]; then
+  echo "Skipping build-vm docker login"
+  echo
+  echo "Done. Store token in OCI Vault as ocir-auth-token."
+  echo "Image prefix: ${REGISTRY}/${NAMESPACE}/${REPO}"
+  exit 0
+fi
 
 # Copy token file from k3s to build-vm via local jump host and docker login
 REMOTE_TOKEN=$(ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -i "$SSH_KEY" "$K8S_HOST" \

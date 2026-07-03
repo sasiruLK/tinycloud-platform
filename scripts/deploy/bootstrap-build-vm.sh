@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap build-vm (repurposed monitoring-vm) with coordinator + runner.
+# Bootstrap build-vm with coordinator + runner.
 # Run on the target ARM64 host as root.
 set -euo pipefail
 
@@ -84,4 +84,4 @@ echo
 echo "=== Bootstrap complete ==="
 echo "Coordinator: http://${BUILD_VM_PRIVATE_IP}:8090"
 echo "Update gitops-lab apps/tinycloud-api/deployment.yaml BUILD_COORDINATOR_URL"
-echo "Next: docker login ${OCIR_REGISTRY}, migrate SQLite from 1GB-vm-2, verify build"
+echo "Next: docker login ${OCIR_REGISTRY}, decide whether any old SQLite state from amd-utility-2 is worth keeping, verify build"

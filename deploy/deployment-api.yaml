@@ -17,10 +17,10 @@ spec:
     spec:
       serviceAccountName: tinycloud-api
       imagePullSecrets:
-        - name: ghcr-creds
+        - name: ocir-creds
       containers:
         - name: api
-          image: ghcr.io/sasirulk/tinycloud-platform-api:latest
+          image: iad.ocir.io/idzghas4xwzv/tinycloud/tinycloud-platform-api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

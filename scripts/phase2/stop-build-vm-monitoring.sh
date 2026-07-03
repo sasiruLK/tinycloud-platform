@@ -10,7 +10,7 @@
 set -euo pipefail
 
 BUILD_VM="${BUILD_VM:-ubuntu@150.136.96.152}"
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/ssh-key-2026-05-16.key}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 MONITORING_DIR="${MONITORING_DIR:-/opt/monitoring}"
 DRY_RUN="${DRY_RUN:-0}"
 
