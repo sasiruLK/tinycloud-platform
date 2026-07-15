@@ -464,8 +464,8 @@ metadata:
   namespace: argocd
 spec:
   commonUpdateSettings:
-    updateStrategy: semver
-    allowTags: "regexp:^v?[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$"
+    updateStrategy: newest-build
+    allowTags: "regexp:^[a-f0-9]{40}$"
     pullSecret: pullsecret:argocd/ocir-creds
 
   writeBackConfig:

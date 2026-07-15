@@ -3,7 +3,7 @@
 # Run on the target ARM64 host as root.
 set -euo pipefail
 
-BUILD_VM_PRIVATE_IP="${BUILD_VM_PRIVATE_IP:-10.0.0.107}"
+BUILD_VM_PRIVATE_IP="${BUILD_VM_PRIVATE_IP:-10.0.0.73}"
 OCIR_REGISTRY="${OCIR_REGISTRY:-iad.ocir.io}"
 OCIR_NAMESPACE="${OCIR_NAMESPACE:-idzghas4xwzv}"
 OCIR_REPO="${OCIR_REPO:-tinycloud}"

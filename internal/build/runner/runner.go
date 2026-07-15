@@ -151,8 +151,12 @@ func (r *Runner) runJob(ctx context.Context, job *types.BuildJob) error {
 
 	dockerfile := filepath.Join(jobDir, "Dockerfile")
 	if _, err := os.Stat(dockerfile); os.IsNotExist(err) {
-		r.log(ctx, job.ID, "stdout", "generating Dockerfile for "+framework)
-		if err := os.WriteFile(dockerfile, []byte(GeneratedDockerfile(framework, job.Port, NodeStaticOutputDir(jobDir))), 0644); err != nil {
+		dfFramework := framework
+		if framework == "node" {
+			dfFramework = NodeFramework(jobDir)
+		}
+		r.log(ctx, job.ID, "stdout", "generating Dockerfile for "+dfFramework)
+		if err := os.WriteFile(dockerfile, []byte(GeneratedDockerfile(dfFramework, job.Port, NodeStaticOutputDir(jobDir))), 0644); err != nil {
 			r.fail(ctx, job.ID, "failed to write Dockerfile: "+err.Error())
 			return nil
 		}
@@ -221,6 +225,20 @@ func DetectFramework(dir string) (string, error) {
 	return "", fmt.Errorf("unsupported framework: expected package.json or go.mod")
 }
 
+// NodeFramework returns "node-server" for apps that need a runtime Node process
+// (Next.js, Express, etc.) or "node-static" for apps that compile to static files.
+func NodeFramework(workDir string) string {
+	data, err := os.ReadFile(filepath.Join(workDir, "package.json"))
+	if err != nil {
+		return "node-static"
+	}
+	s := string(data)
+	if strings.Contains(s, `"next"`) {
+		return "node-server"
+	}
+	return "node-static"
+}
+
 func NodeStaticOutputDir(workDir string) string {
 	data, err := os.ReadFile(filepath.Join(workDir, "package.json"))
 	if err != nil {
@@ -234,7 +252,27 @@ func NodeStaticOutputDir(workDir string) string {
 
 func GeneratedDockerfile(framework string, port int, nodeStaticRoot string) string {
 	switch framework {
-	case "node":
+	case "node-server":
+		return fmt.Sprintf(`FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+ENV NODE_ENV=production
+RUN npm run build
+
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=%d
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/public ./public
+EXPOSE %d
+CMD ["npm", "start"]
+`, port, port)
+	case "node", "node-static":
 		if nodeStaticRoot == "" {
 			nodeStaticRoot = "dist"
 		}
