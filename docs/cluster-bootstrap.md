@@ -1,5 +1,12 @@
 # Cluster Bootstrap
 
+> **Partly stale (2026-08-15).** The cluster is up and healthy — nothing here needs running today.
+> Every OCIR step below is void: OCIR returns HTTP 403 `FREE_TIER_NOT_SUPPORTED` on this tenancy and
+> the lab runs on GHCR with `ghcr-creds`. `scripts/deploy/setup-ocir.sh` and the `ocir-creds` gate in
+> `scripts/bootstrap-gitops.sh` have not been updated yet. Note also that Argo CD and
+> argocd-image-updater were installed **out of band** and are not reinstalled by these scripts.
+> For current state use [infrastructure-runbook.md](./infrastructure-runbook.md).
+
 Run these steps from the admin machine after the ARM and AMD instances have been rebuilt cleanly.
 The current Always Free target is `2 OCPUs / 12 GB` on Ampere A1, so the default shape is now `k3s-control + k3s-worker-1` only.
 
