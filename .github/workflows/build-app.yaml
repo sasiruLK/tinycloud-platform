@@ -224,7 +224,11 @@ jobs:
           # github.actor is the dispatching token's owner on repository_dispatch,
           # which need not match the package namespace. Pin to the owner instead.
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Must be a PAT with write:packages. The run's own GITHUB_TOKEN is not
+          # sufficient: it can only write packages already linked to this
+          # repository, so creating ghcr.io/<owner>/<app> for a user app fails
+          # with permission_denied: write_package.
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build and push arm64 image
         id: build
