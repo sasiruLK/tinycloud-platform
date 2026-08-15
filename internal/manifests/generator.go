@@ -47,6 +47,14 @@ type CreateAppResponse struct {
 	Status string `json:"status"`
 }
 
+// PlaceholderTag satisfies tag validation when the real tag is not yet known.
+// Build requests are validated up front, but the commit SHA that becomes the
+// image tag is only resolved later, by the executor, once it has cloned the
+// repository and read HEAD. Callers validating a not-yet-built app must use
+// this rather than inventing a literal, which is how a semver dummy survived
+// the switch to commit-SHA tags and broke every build request.
+const PlaceholderTag = "0000000000000000000000000000000000000000"
+
 // PlatformHost is the external platform hostname.
 const PlatformHost = "tinycloud.sasiru.lk"
 
