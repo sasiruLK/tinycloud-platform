@@ -1,6 +1,7 @@
 package manifests
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
 
@@ -190,4 +191,29 @@ func TestProbesDoNotRequireHealthEndpoint(t *testing.T) {
 	assert.NotContains(t, deployment, "httpGet",
 		"probes must not depend on the app serving a specific HTTP path")
 	assert.Contains(t, deployment, "tcpSocket")
+}
+
+// The namespace quota must be able to hold maxReplicas pods at the deployment's
+// own requests and limits. Previously an app could pass validation at 10
+// replicas and then be refused by its own quota at 6.
+func TestQuotaHoldsMaxReplicas(t *testing.T) {
+	req := CreateAppRequest{
+		Name: "quota-app", Image: "ghcr.io/user/quota-app",
+		Tag: PlaceholderTag, Replicas: maxReplicas, Port: 8080,
+	}
+	NormalizeCreateAppRequest(&req)
+	require.NoError(t, ValidateCreateAppRequest(&req),
+		"maxReplicas must itself be a valid replica count")
+
+	files := GenerateAppFiles(req)
+	quota := string(files["apps/quota-app/resource-quota.yaml"])
+	deployment := string(files["apps/quota-app/deployment.yaml"])
+
+	// Pod count in the quota must not be below what validation permits.
+	assert.Contains(t, quota, fmt.Sprintf("pods: %q", fmt.Sprintf("%d", maxReplicas)))
+
+	// Requests must be tight enough that the scheduler is not misled: a request
+	// far below the limit lets it overcommit a node that looks nearly empty.
+	assert.Contains(t, deployment, "memory: 128Mi")
+	assert.Contains(t, deployment, "memory: 256Mi")
 }
