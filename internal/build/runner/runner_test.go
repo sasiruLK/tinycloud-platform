@@ -58,37 +58,37 @@ func TestCloneURLRedactsGitHubToken(t *testing.T) {
 }
 
 func TestResolveImagePrefix(t *testing.T) {
-	require.Equal(t, "iad.ocir.io/ns/tinycloud", resolveImagePrefix(Config{
-		ImagePrefix: "iad.ocir.io/ns/tinycloud",
+	require.Equal(t, "ghcr.io/ns", resolveImagePrefix(Config{
+		ImagePrefix: "ghcr.io/ns",
 	}))
-	require.Equal(t, "iad.ocir.io/idzghas4xwzv/tinycloud", resolveImagePrefix(Config{}))
-	require.Equal(t, "iad.ocir.io/customns/tinycloud", resolveImagePrefix(Config{
-		Registry: "iad.ocir.io",
-		Owner:    "customns/tinycloud",
+	require.Equal(t, "ghcr.io/sasirulk", resolveImagePrefix(Config{}))
+	require.Equal(t, "ghcr.io/customns", resolveImagePrefix(Config{
+		Registry: "ghcr.io",
+		Owner:    "customns",
 	}))
 }
 
 func TestBuildArgsNativeARM64WithCache(t *testing.T) {
 	r := New(Config{
-		ImagePrefix:   "iad.ocir.io/ns/tinycloud",
+		ImagePrefix:   "ghcr.io/ns",
 		BuildPlatform: "native",
-		CacheRef:      "iad.ocir.io/ns/tinycloud/cache:buildkit",
+		CacheRef:      "ghcr.io/ns/cache:buildkit",
 	})
-	args := r.buildArgs("iad.ocir.io/ns/tinycloud/app:abc123")
+	args := r.buildArgs("ghcr.io/ns/app:abc123")
 	require.Equal(t, []string{
-		"docker", "buildx", "build", "-t", "iad.ocir.io/ns/tinycloud/app:abc123",
-		"--cache-from", "type=registry,ref=iad.ocir.io/ns/tinycloud/cache:buildkit",
-		"--cache-to", "type=registry,ref=iad.ocir.io/ns/tinycloud/cache:buildkit,mode=max",
+		"docker", "buildx", "build", "-t", "ghcr.io/ns/app:abc123",
+		"--cache-from", "type=registry,ref=ghcr.io/ns/cache:buildkit",
+		"--cache-to", "type=registry,ref=ghcr.io/ns/cache:buildkit,mode=max",
 		"--load", ".",
 	}, args)
 }
 
 func TestBuildArgsCrossCompile(t *testing.T) {
 	r := New(Config{
-		ImagePrefix:   "iad.ocir.io/user/tinycloud",
+		ImagePrefix:   "ghcr.io/user",
 		BuildPlatform: "linux/arm64",
 	})
-	args := r.buildArgs("iad.ocir.io/user/tinycloud/app:tag")
+	args := r.buildArgs("ghcr.io/user/app:tag")
 	require.Contains(t, args, "--platform")
 	require.Contains(t, args, "linux/arm64")
 }
