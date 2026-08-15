@@ -96,7 +96,7 @@ func TestGenerateAppFiles(t *testing.T) {
 	assert.Contains(t, deployment, "containerPort: 8080")
 	assert.Contains(t, deployment, "name: PORT")
 	assert.Contains(t, deployment, `value: "8080"`)
-	assert.Contains(t, deployment, "path: /healthz")
+	assert.Contains(t, deployment, "tcpSocket")
 	assert.Contains(t, deployment, "ghcr.io/user/demo:b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5")
 	assert.Contains(t, deployment, "ghcr-creds")
 	assert.Contains(t, deployment, `name: LOG_LEVEL`)
@@ -173,4 +173,21 @@ func TestPlaceholderTagPassesValidation(t *testing.T) {
 	NormalizeCreateAppRequest(&req)
 	require.NoError(t, ValidateCreateAppRequest(&req),
 		"PlaceholderTag must satisfy the tag rule or build requests cannot be validated")
+}
+
+// Probes must not require an application-level contract. The platform deploys
+// arbitrary repositories; when probes hit /healthz, any app that did not serve
+// that path crash-looped forever while answering real traffic correctly.
+func TestProbesDoNotRequireHealthEndpoint(t *testing.T) {
+	req := CreateAppRequest{
+		Name: "probe-app", Image: "ghcr.io/user/probe-app",
+		Tag: PlaceholderTag, Replicas: 1, Port: 8080,
+	}
+	NormalizeCreateAppRequest(&req)
+	deployment := string(GenerateAppFiles(req)["apps/probe-app/deployment.yaml"])
+
+	require.NotEmpty(t, deployment)
+	assert.NotContains(t, deployment, "httpGet",
+		"probes must not depend on the app serving a specific HTTP path")
+	assert.Contains(t, deployment, "tcpSocket")
 }
