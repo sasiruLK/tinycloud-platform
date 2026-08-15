@@ -367,8 +367,18 @@ spec:
   policyTypes:
     - Egress
   egress:
+    # kube-proxy DNATs the kubernetes.default ClusterIP to the real API server
+    # endpoint before NetworkPolicy is evaluated, so a rule naming 10.43.0.1:443
+    # never matches and the Job fails with "connection refused". The node
+    # address and port the ClusterIP resolves to is what must be allowed; the
+    # ClusterIP rule is kept for CNIs that evaluate policy pre-DNAT.
     - to:
-        # kubernetes.default ClusterIP — the first address of the service CIDR.
+        - ipBlock:
+            cidr: 10.0.0.0/24
+      ports:
+        - protocol: TCP
+          port: 6443
+    - to:
         - ipBlock:
             cidr: 10.43.0.1/32
       ports:
