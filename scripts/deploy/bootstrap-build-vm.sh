@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Bootstrap build-vm with coordinator + runner.
+# Bootstrap the host that runs the build coordinator.
+#
+# Builds execute in GitHub Actions; there is no local runner. The coordinator
+# keeps the queue, lifecycle and logs, and dispatches to the workflow.
 # Run on the target ARM64 host as root.
 set -euo pipefail
 
@@ -20,15 +23,12 @@ echo "=== TinyCloud build-vm bootstrap ==="
 if ! id tinycloud &>/dev/null; then
   useradd -r -m -s /bin/bash tinycloud
 fi
-usermod -aG docker tinycloud
 
 install -d -o tinycloud -g tinycloud /etc/tinycloud
 install -d -o tinycloud -g tinycloud /var/lib/tinycloud-build-coordinator
-install -d -o tinycloud -g tinycloud /var/lib/tinycloud-build-runner/work
 
 if [[ -f "$REPO_ROOT/bin/arm64/tinycloud-build-coordinator" ]]; then
   install -m 755 "$REPO_ROOT/bin/arm64/tinycloud-build-coordinator" /usr/local/bin/tinycloud-build-coordinator
-  install -m 755 "$REPO_ROOT/bin/arm64/tinycloud-build-runner" /usr/local/bin/tinycloud-build-runner
 else
   echo "Binaries not found at $REPO_ROOT/bin/arm64/. Build locally:"
   echo "  ./scripts/deploy/build-binaries.sh"
@@ -36,7 +36,6 @@ else
 fi
 
 install -m 644 "$REPO_ROOT/docs/deploy/tinycloud-build-coordinator.service" /etc/systemd/system/
-install -m 644 "$REPO_ROOT/docs/deploy/tinycloud-build-runner.service" /etc/systemd/system/
 
 if [[ ! -f /etc/tinycloud/build-coordinator.env ]]; then
   cp "$REPO_ROOT/docs/deploy/build-coordinator.env.example" /etc/tinycloud/build-coordinator.env
@@ -45,17 +44,6 @@ if [[ ! -f /etc/tinycloud/build-coordinator.env ]]; then
   echo "Edit /etc/tinycloud/build-coordinator.env with Vault secrets"
 fi
 
-if [[ ! -f /etc/tinycloud/build-runner.env ]]; then
-  cp "$REPO_ROOT/docs/deploy/build-runner.env.example" /etc/tinycloud/build-runner.env
-  sed -i "s|BUILD_COORDINATOR_URL=.*|BUILD_COORDINATOR_URL=http://127.0.0.1:8090|" /etc/tinycloud/build-runner.env
-  sed -i "s|IMAGE_PREFIX=.*|IMAGE_PREFIX=${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${OCIR_REPO}|" /etc/tinycloud/build-runner.env
-  sed -i "s|BUILD_CACHE_REF=.*|BUILD_CACHE_REF=${OCIR_REGISTRY}/${OCIR_NAMESPACE}/${OCIR_REPO}/cache:buildkit|" /etc/tinycloud/build-runner.env
-  chown tinycloud:tinycloud /etc/tinycloud/build-runner.env
-  chmod 600 /etc/tinycloud/build-runner.env
-  echo "Edit /etc/tinycloud/build-runner.env with Vault secrets"
-fi
-
-docker buildx create --use --name tinycloud 2>/dev/null || docker buildx use tinycloud
 
 # OCI cloud images reject non-SSH inbound by default (iptables REJECT → "no route to host").
 if ! iptables -C INPUT -p tcp -s 10.0.0.0/24 --dport 8090 -j ACCEPT 2>/dev/null; then
@@ -77,8 +65,8 @@ if [[ "$STOP_MONITORING" == "1" ]]; then
 fi
 
 systemctl daemon-reload
-systemctl enable tinycloud-build-coordinator tinycloud-build-runner
-systemctl restart tinycloud-build-coordinator tinycloud-build-runner
+systemctl enable tinycloud-build-coordinator
+systemctl restart tinycloud-build-coordinator
 
 echo
 echo "=== Bootstrap complete ==="
