@@ -6,11 +6,12 @@ import (
 	"github.com/sasiruLK/tinycloud-platform/internal/api/middleware"
 	buildclient "github.com/sasiruLK/tinycloud-platform/internal/build/client"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
+	"github.com/sasiruLK/tinycloud-platform/internal/oci"
 )
 
 // SetupRoutes registers all API routes
-func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient.Client) {
-	h := handlers.New(k8sClient, buildClient)
+func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient.Client, infra *oci.Cache) {
+	h := handlers.New(k8sClient, buildClient, infra)
 
 	// OpenAPI spec (unauthenticated)
 	app.Get("/openapi.json", OpenAPISpec)
@@ -42,4 +43,7 @@ func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient
 
 	// Rollbacks
 	v1.Get("/rollbacks", h.ListRollbacks)
+
+	// OCI infrastructure health (cached snapshot)
+	v1.Get("/infra", h.GetInfra)
 }

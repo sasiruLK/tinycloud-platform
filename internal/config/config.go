@@ -10,6 +10,13 @@ type Config struct {
 	GitHubUser            string
 	BuildCoordinatorURL   string
 	BuildCoordinatorToken string
+
+	// OCI infrastructure reporting. All optional: empty values fall back to
+	// the tenancy defaults compiled into internal/oci.
+	OCICompartmentID          string
+	OCINetworkLoadBalancerID  string
+	OCIObjectStorageNamespace string
+	OCIBackupBucket           string
 }
 
 func Load() *Config {
@@ -31,5 +38,10 @@ func Load() *Config {
 		GitHubUser:            os.Getenv("GITHUB_USERNAME"),
 		BuildCoordinatorURL:   os.Getenv("BUILD_COORDINATOR_URL"),
 		BuildCoordinatorToken: os.Getenv("BUILD_COORDINATOR_TOKEN"),
+
+		OCICompartmentID:          os.Getenv("OCI_COMPARTMENT_ID"),
+		OCINetworkLoadBalancerID:  os.Getenv("OCI_NLB_ID"),
+		OCIObjectStorageNamespace: os.Getenv("OCI_OBJECT_STORAGE_NAMESPACE"),
+		OCIBackupBucket:           os.Getenv("OCI_BACKUP_BUCKET"),
 	}
 }
