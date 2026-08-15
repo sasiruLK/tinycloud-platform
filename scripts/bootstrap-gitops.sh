@@ -113,13 +113,18 @@ kubectl_cmd apply -f "$GITOPS_ROOT/argocd/cluster-issuers.yaml"
 if [[ "$APPLY_PLATFORM_APPS" != "1" ]]; then
   echo
   echo "Argo CD and cert-manager are ready."
-  echo "Next: run ./scripts/deploy/setup-ocir.sh, then rerun this script with APPLY_PLATFORM_APPS=1."
+  echo "Next: create the ghcr-creds pull secret in the argocd and tinycloud"
+  echo "namespaces, then rerun this script with APPLY_PLATFORM_APPS=1:"
+  echo
+  echo "  kubectl create secret docker-registry ghcr-creds \\"
+  echo "    --docker-server=ghcr.io --docker-username=<github-user> \\"
+  echo "    --docker-password=<github-pat> -n argocd"
   exit 0
 fi
 
 kubectl_cmd create namespace tinycloud --dry-run=client -o yaml | kubectl_cmd apply -f -
-require_secret argocd ocir-creds
-require_secret tinycloud ocir-creds
+require_secret argocd ghcr-creds
+require_secret tinycloud ghcr-creds
 
 kubectl_cmd apply -f "$GITOPS_ROOT/argocd/tinycloud-platform.yaml"
 kubectl_cmd apply -f "$GITOPS_ROOT/argocd/tinycloud-api.yaml"
