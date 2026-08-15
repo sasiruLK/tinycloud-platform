@@ -210,7 +210,7 @@ spec:
         tinycloud.io/managed-by: platform
     spec:
       imagePullSecrets:
-        - name: ocir-creds
+        - name: ghcr-creds
       containers:
         - name: {{APP_NAME}}
           image: {{IMAGE}}:{{TAG}}
@@ -377,7 +377,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{APP_NAME}}-ocir-creds-reader
+  name: {{APP_NAME}}-ghcr-creds-reader
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
@@ -385,13 +385,13 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["ocir-creds"]
+    resourceNames: ["ghcr-creds"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{APP_NAME}}-ocir-creds-reader
+  name: {{APP_NAME}}-ghcr-creds-reader
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
@@ -399,7 +399,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{APP_NAME}}-ocir-creds-reader
+  name: {{APP_NAME}}-ghcr-creds-reader
 subjects:
   - kind: ServiceAccount
     name: pull-secret-sync
@@ -408,7 +408,7 @@ subjects:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sync-ocir-creds
+  name: sync-ghcr-creds
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
@@ -433,7 +433,7 @@ spec:
             - /bin/bash
             - -ec
             - |
-              kubectl get secret ocir-creds -n argocd -o yaml | \
+              kubectl get secret ghcr-creds -n argocd -o yaml | \
                 sed "s/namespace: argocd/namespace: {{APP_NAME}}/" | \
                 grep -vE '^\s*(resourceVersion|uid|creationTimestamp):' | \
                 kubectl apply -f -
@@ -466,7 +466,7 @@ spec:
   commonUpdateSettings:
     updateStrategy: newest-build
     allowTags: "regexp:^[a-f0-9]{40}$"
-    pullSecret: pullsecret:argocd/ocir-creds
+    pullSecret: pullsecret:argocd/ghcr-creds
 
   writeBackConfig:
     method: git

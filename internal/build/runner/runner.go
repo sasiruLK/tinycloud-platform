@@ -33,7 +33,7 @@ type Config struct {
 	CoordinatorURL string
 	Token          string
 	WorkDir        string
-	// ImagePrefix is the registry path without tag, e.g. iad.ocir.io/idzghas4xwzv/tinycloud
+	// ImagePrefix is the registry path without tag, e.g. ghcr.io/sasirulk
 	ImagePrefix string
 	// Registry + Owner are fallback fields used when ImagePrefix is empty.
 	Registry string
@@ -71,11 +71,11 @@ func resolveImagePrefix(cfg Config) string {
 	}
 	registry := cfg.Registry
 	if registry == "" {
-		registry = "iad.ocir.io"
+		registry = "ghcr.io"
 	}
 	owner := strings.Trim(cfg.Owner, "/")
 	if owner == "" {
-		owner = "idzghas4xwzv/tinycloud"
+		owner = "sasirulk"
 	}
 	return registry + "/" + owner
 }
