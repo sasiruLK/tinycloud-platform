@@ -348,7 +348,34 @@ spec:
           port: 53
 `
 
-const pullSecretSyncTemplate = `apiVersion: v1
+const pullSecretSyncTemplate = `apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pull-secret-sync-apiserver
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-4"
+spec:
+  # The namespace default-deny policy permits egress to DNS only, so the sync
+  # Job below cannot reach the Kubernetes API and every sync after the first
+  # fails. The first sync survives only because this namespace has no policies
+  # yet when the hook runs; from then on the app can never be updated.
+  podSelector:
+    matchLabels:
+      tinycloud.io/component: pull-secret-sync
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        # kubernetes.default ClusterIP — the first address of the service CIDR.
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: pull-secret-sync
@@ -428,6 +455,10 @@ metadata:
 spec:
   ttlSecondsAfterFinished: 300
   template:
+    metadata:
+      labels:
+        # Selected by allow-pull-secret-sync-apiserver above.
+        tinycloud.io/component: pull-secret-sync
     spec:
       serviceAccountName: pull-secret-sync
       restartPolicy: Never
