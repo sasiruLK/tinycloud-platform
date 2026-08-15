@@ -14,6 +14,7 @@ import (
 	buildclient "github.com/sasiruLK/tinycloud-platform/internal/build/client"
 	"github.com/sasiruLK/tinycloud-platform/internal/config"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
+	"github.com/sasiruLK/tinycloud-platform/internal/oci"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 )
 
@@ -73,7 +74,19 @@ func main() {
 		builds = buildclient.New(cfg.BuildCoordinatorURL, cfg.BuildCoordinatorToken)
 	}
 
-	api.SetupRoutes(app, k8sClient, builds)
+	// Infrastructure snapshot. Instance principal authentication is resolved
+	// lazily on the first refresh, so a failure here (a laptop, a missing IAM
+	// policy) never keeps the API from starting — /v1/infra explains itself
+	// and every other route is unaffected.
+	infra := oci.NewDefaultCache(oci.ConfigWithOverrides(
+		cfg.OCICompartmentID,
+		cfg.OCINetworkLoadBalancerID,
+		cfg.OCIObjectStorageNamespace,
+		cfg.OCIBackupBucket,
+	))
+	infra.Prime()
+
+	api.SetupRoutes(app, k8sClient, builds, infra)
 
 	port := cfg.Port
 	if port == "" {

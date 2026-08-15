@@ -15,6 +15,7 @@ import (
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
 	"github.com/sasiruLK/tinycloud-platform/internal/manifests"
 	"github.com/sasiruLK/tinycloud-platform/internal/models"
+	"github.com/sasiruLK/tinycloud-platform/internal/oci"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -23,14 +24,19 @@ type Handler struct {
 	K8s   *k8s.Client
 	Git   *git.GitOps
 	Build *buildclient.Client
+	// Infra serves the cached OCI infrastructure snapshot. Nil when
+	// infrastructure reporting is not configured; /v1/infra then reports that
+	// rather than failing.
+	Infra *oci.Cache
 }
 
 // New creates a new Handler
-func New(k8sClient *k8s.Client, buildClient *buildclient.Client) *Handler {
+func New(k8sClient *k8s.Client, buildClient *buildclient.Client, infra *oci.Cache) *Handler {
 	return &Handler{
 		K8s:   k8sClient,
 		Git:   git.NewGitOps(),
 		Build: buildClient,
+		Infra: infra,
 	}
 }
 

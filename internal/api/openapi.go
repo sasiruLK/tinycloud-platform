@@ -326,6 +326,29 @@ func OpenAPISpec(c *fiber.Ctx) error {
 					},
 				},
 			},
+			"/infra": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Infrastructure health",
+					"description": "Returns a cached snapshot of the OCI substrate: compute nodes with CPU/memory, " +
+						"Monitoring alarms, load balancer backends, backup bucket, synthetic uptime and Always Free " +
+						"capacity. Refreshed in the background every 60 seconds; `stale` is true when the cache is " +
+						"older than five minutes. Fields are null where a value is genuinely unavailable, and " +
+						"`warnings` names the sources that failed.",
+					"tags": []string{"system"},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Infrastructure snapshot",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"type": "object"},
+								},
+							},
+						},
+						"401": unauthorizedResponse(),
+						"503": errorResponse(),
+					},
+				},
+			},
 			"/rollbacks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List rollback history",
