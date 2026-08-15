@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/sasiruLK/tinycloud-platform/internal/build/dispatch"
 	"github.com/sasiruLK/tinycloud-platform/internal/build/types"
 	"github.com/sasiruLK/tinycloud-platform/internal/git"
 	"github.com/sasiruLK/tinycloud-platform/internal/manifests"
@@ -15,13 +16,16 @@ import (
 const maxAttempts = 2
 
 type Server struct {
-	store *Store
-	token string
-	git   *git.GitOps
+	store      *Store
+	token      string
+	git        *git.GitOps
+	dispatcher *dispatch.Dispatcher
 }
 
-func NewServer(store *Store, token string) *Server {
-	return &Server{store: store, token: token, git: git.NewGitOps()}
+// NewServer wires the coordinator. dispatcher may be nil, in which case builds
+// are accepted and left queued for a polling runner via /v1/runner/poll.
+func NewServer(store *Store, token string, dispatcher *dispatch.Dispatcher) *Server {
+	return &Server{store: store, token: token, git: git.NewGitOps(), dispatcher: dispatcher}
 }
 
 func (s *Server) Register(app *fiber.App) {
@@ -100,6 +104,21 @@ func (s *Server) createBuild(c *fiber.Ctx) error {
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create build"})
 	}
+
+	// Hand the job to the executor. The job row already exists, so a dispatch
+	// failure is recorded against the build rather than lost in a 500 — the user
+	// sees why on the build page instead of a build that sits queued forever.
+	if s.dispatcher != nil {
+		if err := s.dispatcher.Dispatch(context.Background(), job.ID, job.AppName, job.RepoURL, job.Ref, job.Port); err != nil {
+			_ = s.store.AppendLog(ctx, job.ID, "stderr", "failed to dispatch build: "+err.Error())
+			_ = s.store.UpdateRunnerStatus(ctx, job.ID, types.RunnerStatusRequest{
+				Status: types.StatusFailed,
+				Error:  "failed to dispatch build to executor: " + err.Error(),
+			})
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to dispatch build"})
+		}
+	}
+
 	return c.Status(fiber.StatusCreated).JSON(types.CreateBuildResponse{
 		AppName: job.AppName,
 		BuildID: job.ID,

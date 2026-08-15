@@ -1,0 +1,252 @@
+name: Build User App
+
+# Executor for the TinyCloud build plane.
+#
+# The platform owns the queue, lifecycle, logs and UI; this workflow is only the
+# thing that runs the container build. It speaks the existing runner protocol
+# (POST /v1/runner/jobs/:id/logs and /status), so the coordinator, store and UI
+# need no knowledge that builds happen here.
+#
+# Triggered by repository_dispatch from the coordinator.
+
+on:
+  repository_dispatch:
+    types: [build-app]
+
+concurrency:
+  # One build per app; a newer push supersedes an in-flight build.
+  group: build-app-${{ github.event.client_payload.app_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    env:
+      JOB_ID: ${{ github.event.client_payload.job_id }}
+      APP_NAME: ${{ github.event.client_payload.app_name }}
+      REPO_URL: ${{ github.event.client_payload.repo_url }}
+      REF: ${{ github.event.client_payload.ref }}
+      PORT: ${{ github.event.client_payload.port }}
+      COORDINATOR_URL: ${{ github.event.client_payload.coordinator_url }}
+      IMAGE_PREFIX: ${{ github.event.client_payload.image_prefix }}
+      COORDINATOR_TOKEN: ${{ secrets.BUILD_COORDINATOR_TOKEN }}
+
+    steps:
+      - name: Install reporting helpers
+        run: |
+          # clog <stream> <message...>  — stream a log line to the platform.
+          # Failures to report must never fail the build, hence `|| true`.
+          cat > /tmp/clog <<'SH'
+          #!/usr/bin/env bash
+          stream="$1"; shift
+          msg="$*"
+          [ -z "$COORDINATOR_URL" ] && { echo "[$stream] $msg"; exit 0; }
+          echo "[$stream] $msg"
+          jq -nc --arg s "$stream" --arg m "$msg" '{stream:$s,message:$m}' \
+            | curl -sS -m 15 -X POST \
+                -H "Authorization: Bearer $COORDINATOR_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data-binary @- \
+                "$COORDINATOR_URL/v1/runner/jobs/$JOB_ID/logs" >/dev/null || true
+          SH
+          chmod +x /tmp/clog
+          echo "/tmp" >> "$GITHUB_PATH"
+
+          # cstatus <json>  — post a RunnerStatusRequest.
+          cat > /tmp/cstatus <<'SH'
+          #!/usr/bin/env bash
+          [ -z "$COORDINATOR_URL" ] && exit 0
+          curl -sS -m 20 -X POST \
+            -H "Authorization: Bearer $COORDINATOR_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$1" \
+            "$COORDINATOR_URL/v1/runner/jobs/$JOB_ID/status" >/dev/null || true
+          SH
+          chmod +x /tmp/cstatus
+
+      - name: Report queued -> running
+        run: clog stdout "build accepted by GitHub Actions (run ${{ github.run_id }})"
+
+      - name: Checkout application repository
+        id: checkout
+        run: |
+          set -o pipefail
+          clog stdout "cloning $REPO_URL @ $REF"
+          url="$REPO_URL"
+          case "$url" in
+            https://github.com/*)
+              url="https://x-access-token:${{ secrets.APP_REPO_TOKEN }}@github.com/${url#https://github.com/}"
+              ;;
+          esac
+          if ! git clone --depth 1 --branch "$REF" "$url" src 2>&1 \
+                | sed "s|${{ secrets.APP_REPO_TOKEN }}|REDACTED|g" | tee /tmp/clone.log; then
+            clog stderr "clone failed"
+            cstatus "$(jq -nc '{status:"failed",error:"clone failed"}')"
+            exit 1
+          fi
+          sha="$(git -C src rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          clog stdout "resolved commit $sha"
+
+      - name: Detect framework
+        id: detect
+        run: |
+          cd src
+          if [ -f Dockerfile ]; then
+            fw="dockerfile"
+          elif [ -f package.json ]; then
+            if grep -q '"next"' package.json; then fw="node-server"; else fw="node-static"; fi
+          elif [ -f go.mod ]; then
+            fw="go"
+          else
+            clog stderr "unsupported framework: expected package.json or go.mod"
+            cstatus "$(jq -nc '{status:"failed",error:"unsupported framework: expected package.json or go.mod"}')"
+            exit 1
+          fi
+          echo "framework=$fw" >> "$GITHUB_OUTPUT"
+          clog stdout "detected framework: $fw"
+          cstatus "$(jq -nc --arg c "${{ steps.checkout.outputs.sha }}" --arg f "$fw" \
+            '{status:"running",commitSha:$c,framework:$f}')"
+
+      # ── Fast path: cross-compile on x86, no QEMU ──────────────────────────
+      # Emulated arm64 builds took ~24 minutes on the old VM runners. Building
+      # the artifact natively and copying it into an arm64 base image keeps this
+      # in the low minutes and well inside the Actions free tier.
+
+      - name: Set up Go
+        if: steps.detect.outputs.framework == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: src/go.sum
+
+      - name: Cross-compile Go binary for arm64
+        if: steps.detect.outputs.framework == 'go'
+        run: |
+          set -o pipefail
+          cd src
+          clog stdout "cross-compiling linux/arm64 binary"
+          # Match the old runner: rebind hardcoded loopback listeners so the
+          # container is reachable from outside the pod.
+          find . -name "*.go" -exec sed -i \
+            -e "s/localhost:[0-9]\+/0.0.0.0:$PORT/g" \
+            -e "s/\"127\.0\.0\.1:[0-9]\+\"/\"0.0.0.0:$PORT\"/g" \
+            -e "s/\":8080\"/\":$PORT\"/g" {} + 2>/dev/null || true
+          go mod download
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o server . 2>&1 | tee /tmp/build.log
+          while IFS= read -r line; do clog stdout "$line"; done < /tmp/build.log
+          cat > Dockerfile.tinycloud <<EOF
+          FROM gcr.io/distroless/static:nonroot
+          WORKDIR /app
+          COPY server /app/server
+          USER 65532:65532
+          ENV PORT=$PORT
+          EXPOSE $PORT
+          ENTRYPOINT ["/app/server"]
+          EOF
+
+      - name: Set up Node
+        if: startsWith(steps.detect.outputs.framework, 'node')
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Build Node app
+        if: startsWith(steps.detect.outputs.framework, 'node')
+        run: |
+          set -o pipefail
+          cd src
+          clog stdout "installing dependencies"
+          (npm ci || npm install) 2>&1 | tail -40 | while IFS= read -r l; do clog stdout "$l"; done
+          clog stdout "running build"
+          npm run build 2>&1 | tail -60 | while IFS= read -r l; do clog stdout "$l"; done
+
+          if [ "${{ steps.detect.outputs.framework }}" = "node-static" ]; then
+            root="dist"; grep -q "react-scripts" package.json && root="build"
+            clog stdout "packaging static output from $root"
+            cat > Dockerfile.tinycloud <<EOF
+          FROM nginxinc/nginx-unprivileged:alpine
+          COPY $root /usr/share/nginx/html
+          EXPOSE $PORT
+          EOF
+          else
+            clog stdout "packaging Next.js server output"
+            cat > Dockerfile.tinycloud <<EOF
+          FROM node:22-alpine
+          WORKDIR /app
+          ENV NODE_ENV=production
+          ENV PORT=$PORT
+          COPY package.json ./
+          COPY .next ./.next
+          COPY node_modules ./node_modules
+          COPY public ./public
+          EXPOSE $PORT
+          CMD ["npm", "start"]
+          EOF
+          fi
+
+      - name: Set up QEMU
+        # Only repos shipping their own Dockerfile need emulation: we cannot know
+        # what their build stage does, so it has to run on the target arch.
+        if: steps.detect.outputs.framework == 'dockerfile'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build and push arm64 image
+        id: build
+        run: |
+          set -o pipefail
+          cd src
+          image="$IMAGE_PREFIX/$APP_NAME"
+          tag="${{ steps.checkout.outputs.sha }}"
+          df="Dockerfile.tinycloud"
+          [ "${{ steps.detect.outputs.framework }}" = "dockerfile" ] && df="Dockerfile"
+
+          clog stdout "building $image:$tag for linux/arm64"
+          if ! docker buildx build \
+                --platform linux/arm64 \
+                --file "$df" \
+                --tag "$image:$tag" \
+                --cache-from "type=gha,scope=$APP_NAME" \
+                --cache-to "type=gha,scope=$APP_NAME,mode=max" \
+                --push . 2>&1 | tee /tmp/docker.log; then
+            tail -40 /tmp/docker.log | while IFS= read -r l; do clog stderr "$l"; done
+            cstatus "$(jq -nc '{status:"failed",error:"image build failed"}')"
+            exit 1
+          fi
+          tail -20 /tmp/docker.log | while IFS= read -r l; do clog stdout "$l"; done
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          clog stdout "pushed $image:$tag"
+
+      - name: Report success
+        run: |
+          clog stdout "build complete"
+          cstatus "$(jq -nc \
+            --arg c "${{ steps.checkout.outputs.sha }}" \
+            --arg f "${{ steps.detect.outputs.framework }}" \
+            --arg i "${{ steps.build.outputs.image }}" \
+            --arg t "${{ steps.build.outputs.tag }}" \
+            '{status:"succeeded",commitSha:$c,framework:$f,image:$i,tag:$t}')"
+
+      - name: Report failure
+        if: failure()
+        run: |
+          clog stderr "build failed — see GitHub Actions run ${{ github.run_id }}"
+          cstatus "$(jq -nc --arg e "build failed in GitHub Actions run ${{ github.run_id }}" \
+            '{status:"failed",error:$e}')"
