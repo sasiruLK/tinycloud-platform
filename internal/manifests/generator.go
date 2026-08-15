@@ -7,20 +7,22 @@ import (
 )
 
 const (
-	maxReplicas = 10
+	// Matches the pod count in resourceQuotaTemplate; a 2-node/12GB lab cannot
+	// sensibly run more, and the quota would reject anything higher anyway.
+	maxReplicas = 5
 	minReplicas = 0
 	appPort     = 8080
 )
 
 var (
-	appNameRegex  = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	appNameRegex = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 	// Tags are immutable 40-character git commit SHAs. This must stay in sync
 	// with the allowTags regexp in imageUpdaterTemplate below: a tag the API
 	// accepts but Image Updater will not match means the app can never receive
 	// an automated update.
 	commitSHARegex = regexp.MustCompile(`^[a-f0-9]{40}$`)
-	imageRegex    = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$`)
-	reservedNames = map[string]bool{
+	imageRegex     = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$`)
+	reservedNames  = map[string]bool{
 		"tinycloud-api": true, "tinycloud-ui": true, "tinycloud-platform": true,
 		"nginx-proxy": true, "oauth2-proxy": true, "traefik": true,
 		"kube-system": true, "monitoring": true, "argocd": true,
@@ -243,10 +245,14 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 10
+          # Requests sized near real usage, not far below it. The scheduler packs
+          # by requests alone, so a 4x gap between request and limit let it keep
+          # placing pods on a node that reported 11% memory while actually being
+          # close to full.
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 100m
+              memory: 128Mi
             limits:
               cpu: 250m
               memory: 256Mi
@@ -273,11 +279,14 @@ kind: ResourceQuota
 metadata:
   name: {{APP_NAME}}-quota
 spec:
+  # Sized to hold maxReplicas pods at the deployment's requests and limits.
+  # Previously an app could pass validation at 10 replicas and then be refused
+  # by this quota at 6.
   hard:
-    requests.cpu: "500m"
-    requests.memory: "512Mi"
-    limits.cpu: "1000m"
-    limits.memory: "1Gi"
+    requests.cpu: "600m"
+    requests.memory: "704Mi"
+    limits.cpu: "1500m"
+    limits.memory: "1408Mi"
     pods: "5"
 `
 
