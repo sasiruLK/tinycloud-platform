@@ -3,7 +3,7 @@
 *.so
 *.dylib
 /build-coordinator
-/build-runner
+# /build-runner — removed 2026-08-15, builds run in GitHub Actions
 *.test
 *.out
 go.work
