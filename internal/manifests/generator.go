@@ -231,15 +231,15 @@ spec:
             - containerPort: {{PORT}}
               name: http
 {{ENV_VARS}}
+          # Probes check for a listening socket rather than an HTTP health path,
+          # so an app needs no particular endpoint to deploy healthily.
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 10
