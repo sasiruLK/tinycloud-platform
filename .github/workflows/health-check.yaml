@@ -1,0 +1,109 @@
+name: Platform Health
+
+# Watches the failures OCI alarms cannot see.
+#
+# The infrastructure alarms cover CPU, memory and instance health. Neither of
+# the two failures that actually bit this platform would have tripped them:
+# GHCR_PAT expired and silently broke every image build for a month, and a
+# broken RBAC manifest left an Argo app OutOfSync for just as long. Both were
+# application-level and produced no signal anyone saw.
+#
+# A failing scheduled run is itself easy to miss, so a failure opens a GitHub
+# issue — that emails the repo owner through normal notification settings.
+
+on:
+  schedule:
+    # Daily. A dead PAT or a down ingress does not need minute-level detection,
+    # but a month of silence is unacceptable.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check GHCR credentials still work
+        id: ghcr
+        env:
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        run: |
+          if [ -z "$GHCR_PAT" ]; then
+            echo "reason=GHCR_PAT secret is not set" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # Exactly the step that failed silently from 2026-07-15.
+          if ! echo "$GHCR_PAT" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin >/dev/null 2>&1; then
+            echo "reason=GHCR login failed — GHCR_PAT is expired or revoked. Image builds are broken." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "GHCR login OK"
+
+      - name: Check platform ingress
+        if: always()
+        id: ingress
+        run: |
+          fail=""
+          # Any HTTP response proves Traefik and the certificate are serving.
+          # The root is behind oauth2-proxy, so 401/403/302 are all healthy.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://tinycloud.sasiru.lk/ || echo 000)
+          echo "tinycloud.sasiru.lk -> $code"
+          case "$code" in
+            200|302|401|403) ;;
+            *) fail="${fail}tinycloud.sasiru.lk returned $code. " ;;
+          esac
+
+          # The coordinator's callback path, reached without oauth2-proxy.
+          # 401 is correct here: it proves the route reaches the coordinator.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST https://tinycloud.sasiru.lk/v1/runner/jobs/health/logs || echo 000)
+          echo "coordinator callback -> $code"
+          [ "$code" = "401" ] || fail="${fail}Coordinator callback returned $code, expected 401. GitHub Actions builds cannot report back. "
+
+          # Canary app deployed through the platform end to end.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://counter-demo.sasiru.lk/ || echo 000)
+          echo "counter-demo.sasiru.lk -> $code"
+          [ "$code" = "200" ] || fail="${fail}Canary app counter-demo returned $code, expected 200. "
+
+          if [ -n "$fail" ]; then
+            echo "reason=$fail" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: 'Platform health check failing'
+        run: |
+          body="Scheduled health check failed on $(date -u +%Y-%m-%dT%H:%MZ).
+
+          GHCR: ${{ steps.ghcr.outputs.reason || 'ok' }}
+          Ingress: ${{ steps.ingress.outputs.reason || 'ok' }}
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # One rolling issue rather than one per day.
+          existing=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "$TITLE in:title" --json number --jq '.[0].number' 2>/dev/null || true)
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" --body "$body"
+          else
+            gh issue create --repo "${{ github.repository }}" --title "$TITLE" --body "$body"
+          fi
+
+      - name: Close the issue when healthy again
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "Platform health check failing in:title" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "${{ github.repository }}" \
+              --comment "Health check passing again as of run ${{ github.run_id }}."
+          fi
