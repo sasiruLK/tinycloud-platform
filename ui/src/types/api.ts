@@ -172,3 +172,76 @@ export interface BuildLogLine {
 export interface BuildLogsResponse {
   lines: BuildLogLine[];
 }
+
+// ---------------------------------------------------------------------------
+// Infrastructure health, from GET /v1/infra.
+//
+// Sourced from OCI directly (Compute, Monitoring, NLB, Object Storage) rather
+// than from Kubernetes, so the UI can show the layer beneath Argo CD. Fields
+// are nullable where a metric may genuinely be unavailable — a null renders as
+// "unknown", never as a misleading zero.
+// ---------------------------------------------------------------------------
+
+export interface InfraNode {
+  name: string;
+  state: string;
+  shape: string;
+  ocpus: number;
+  memoryGb: number;
+  faultDomain: string;
+  privateIp: string;
+  cpuPercent: number | null;
+  memoryPercent: number | null;
+  role: "control-plane" | "worker" | "utility" | string;
+}
+
+export interface InfraAlarm {
+  name: string;
+  severity: string;
+  status: string;
+}
+
+export interface InfraIngress {
+  publicIp: string;
+  healthyBackends: number | null;
+  unhealthyBackends: number | null;
+}
+
+export interface InfraBackupStream {
+  prefix: string;
+  count: number;
+  newest: string | null;
+}
+
+export interface InfraBackups {
+  bucket: string;
+  objectCount: number;
+  sizeBytes: number;
+  streams: InfraBackupStream[];
+}
+
+export interface InfraUptime {
+  monitor: string;
+  target: string;
+  availability: number | null;
+}
+
+export interface InfraCapacity {
+  ampereOcpuUsed: number;
+  ampereOcpuTotal: number;
+  ampereMemoryGbUsed: number;
+  ampereMemoryGbTotal: number;
+  objectStorageUsedBytes: number;
+  objectStorageTotalBytes: number;
+}
+
+export interface InfraResponse {
+  updatedAt: string;
+  stale: boolean;
+  nodes: InfraNode[];
+  alarms: InfraAlarm[];
+  ingress: InfraIngress;
+  backups: InfraBackups;
+  uptime: InfraUptime[];
+  capacity: InfraCapacity;
+}
