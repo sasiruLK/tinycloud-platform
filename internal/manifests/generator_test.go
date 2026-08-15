@@ -161,3 +161,16 @@ func TestTagContractMatchesImageUpdater(t *testing.T) {
 	assert.True(t, allow.MatchString(tag),
 		"tag %q is accepted by the API but rejected by allowTags %q; automated updates would never fire", tag, m[1])
 }
+
+// PlaceholderTag exists so callers can validate an app that has not been built
+// yet. If it stops satisfying the tag rule, every build request 400s — which is
+// exactly what happened when tag validation moved from semver to commit SHAs.
+func TestPlaceholderTagPassesValidation(t *testing.T) {
+	req := CreateAppRequest{
+		Name: "placeholder-app", Image: "ghcr.io/user/placeholder-app",
+		Tag: PlaceholderTag, Replicas: 1, Port: 8080,
+	}
+	NormalizeCreateAppRequest(&req)
+	require.NoError(t, ValidateCreateAppRequest(&req),
+		"PlaceholderTag must satisfy the tag rule or build requests cannot be validated")
+}
