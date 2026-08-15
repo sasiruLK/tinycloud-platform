@@ -41,6 +41,7 @@ Intended secrets, rendered from OCI Vault via instance principals: `BUILD_COORDI
 on ARM64 and set `BUILD_PLATFORM` only for QEMU cross-builds on AMD. Images used immutable commit-SHA
 tags; a BuildKit registry cache avoided the Object Storage 50k requests/month API cap.
 
-The scripts and deploy files for this design — `scripts/deploy/bootstrap-build-vm.sh`,
-`scripts/deploy/setup-ocir.sh`, `docs/deploy/ocir-setup.md`,
-`docs/deploy/github-actions-ocir.yml` — are stale. Do not run them.
+`scripts/deploy/setup-ocir.sh`, `docs/deploy/ocir-setup.md` and
+`docs/deploy/github-actions-ocir.yml` were deleted on 2026-08-15.
+`scripts/deploy/bootstrap-build-vm.sh` survives pending the build-plane decision —
+do not run it, the VM it targets no longer exists.

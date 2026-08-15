@@ -2,7 +2,7 @@
 
 > Historical execution log, and much of it is now false: `build-vm` (10.0.0.107) no longer exists and
 > OCIR returns HTTP 403 `FREE_TIER_NOT_SUPPORTED` on this tenancy, so the OCIR steps below are void
-> and the lab runs entirely on GHCR. Do not run `scripts/deploy/setup-ocir.sh`.
+> and the lab runs entirely on GHCR. `scripts/deploy/setup-ocir.sh` has been deleted.
 > For current state use [infrastructure-runbook.md](./infrastructure-runbook.md).
 
 Executed 2026-05-30.
@@ -30,7 +30,7 @@ Executed 2026-05-30.
 
 - [ ] **OCIR docker login on build-vm** — run locally (OCI CLI authenticated):
   ```bash
-  cd tinycloud-platform && ./scripts/deploy/setup-ocir.sh
+  # setup-ocir.sh deleted: OCIR is unavailable on this tenancy
   ```
 - [ ] Copy coordinator SQLite from `amd-utility-2` (10.0.0.55) only if build history is worth keeping
 - [ ] Add `ocir-creds` to existing app namespaces (e.g. `htmx-go-counter`) before switching image refs from GHCR

@@ -1,6 +1,7 @@
 package manifests
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,51 +17,51 @@ func TestValidateCreateAppRequest(t *testing.T) {
 		{
 			name: "valid",
 			req: CreateAppRequest{
-				Name: "my-app", Image: "ghcr.io/user/my-app", Tag: "1.0.0",
+				Name: "my-app", Image: "ghcr.io/user/my-app", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4",
 				Replicas: 2, Port: 8080,
 			},
 		},
 		{
 			name:    "invalid name",
-			req:     CreateAppRequest{Name: "My_App", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 8080},
+			req:     CreateAppRequest{Name: "My_App", Image: "ghcr.io/user/app", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "image with tag",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app:1.0.0", Tag: "1.0.0", Replicas: 1, Port: 8080},
+			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app:1.0.0", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
-			name:    "invalid semver",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "latest", Replicas: 1, Port: 8080},
+			name:    "invalid tag: not a commit SHA",
+			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "not-a-sha", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "replicas too high",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 11, Port: 8080},
+			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4", Replicas: 11, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "reserved name",
-			req:     CreateAppRequest{Name: "tinycloud-api", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 8080},
+			req:     CreateAppRequest{Name: "tinycloud-api", Image: "ghcr.io/user/app", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4", Replicas: 1, Port: 8080},
 			wantErr: true,
 		},
 		{
 			name:    "non-standard port",
-			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0", Replicas: 1, Port: 3000},
+			req:     CreateAppRequest{Name: "my-app", Image: "ghcr.io/user/app", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4", Replicas: 1, Port: 3000},
 			wantErr: true,
 		},
 		{
 			name: "fixed PORT env is allowed",
 			req: CreateAppRequest{
-				Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0",
+				Name: "my-app", Image: "ghcr.io/user/app", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4",
 				Replicas: 1, Port: 8080, Env: map[string]string{"PORT": "8080"},
 			},
 		},
 		{
 			name: "mismatched PORT env is rejected",
 			req: CreateAppRequest{
-				Name: "my-app", Image: "ghcr.io/user/app", Tag: "1.0.0",
+				Name: "my-app", Image: "ghcr.io/user/app", Tag: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4",
 				Replicas: 1, Port: 8080, Env: map[string]string{"PORT": "3000"},
 			},
 			wantErr: true,
@@ -81,7 +82,7 @@ func TestValidateCreateAppRequest(t *testing.T) {
 
 func TestGenerateAppFiles(t *testing.T) {
 	req := CreateAppRequest{
-		Name: "demo-app", Image: "ghcr.io/user/demo", Tag: "2.1.0",
+		Name: "demo-app", Image: "ghcr.io/user/demo", Tag: "b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5",
 		Replicas: 3, Port: 8080,
 		Env: map[string]string{"LOG_LEVEL": "debug"},
 	}
@@ -96,7 +97,7 @@ func TestGenerateAppFiles(t *testing.T) {
 	assert.Contains(t, deployment, "name: PORT")
 	assert.Contains(t, deployment, `value: "8080"`)
 	assert.Contains(t, deployment, "path: /healthz")
-	assert.Contains(t, deployment, "ghcr.io/user/demo:2.1.0")
+	assert.Contains(t, deployment, "ghcr.io/user/demo:b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5")
 	assert.Contains(t, deployment, "ghcr-creds")
 	assert.Contains(t, deployment, `name: LOG_LEVEL`)
 	assert.Contains(t, deployment, `value: "debug"`)
@@ -110,7 +111,7 @@ func TestGenerateAppFiles(t *testing.T) {
 
 	kustomize := string(files["apps/demo-app/kustomization.yaml"])
 	assert.Contains(t, kustomize, "namespace: demo-app")
-	assert.Contains(t, kustomize, "newTag: 2.1.0")
+	assert.Contains(t, kustomize, "newTag: b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5")
 
 	sync := string(files["apps/demo-app/pull-secret-sync.yaml"])
 	assert.Contains(t, sync, "sync-ghcr-creds")
@@ -129,4 +130,34 @@ func TestGenerateAppFiles(t *testing.T) {
 
 func TestAppBaseURL(t *testing.T) {
 	assert.Equal(t, "https://demo-app.sasiru.lk/", AppBaseURL("demo-app"))
+}
+
+// TestTagContractMatchesImageUpdater guards the invariant that broke automated
+// updates for onboarded apps: ValidateCreateAppRequest required semver while the
+// generated ImageUpdater only allowed 40-character commit SHAs. The two sets were
+// disjoint, so no onboarded app could ever receive an automated image update.
+//
+// Any tag the API accepts MUST be matchable by the allowTags regexp that ships in
+// the generated ImageUpdater.
+func TestTagContractMatchesImageUpdater(t *testing.T) {
+	const tag = "b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5"
+
+	req := CreateAppRequest{
+		Name: "contract-app", Image: "ghcr.io/user/contract-app", Tag: tag,
+		Replicas: 1, Port: 8080,
+	}
+	NormalizeCreateAppRequest(&req)
+	require.NoError(t, ValidateCreateAppRequest(&req), "API must accept a commit SHA tag")
+
+	updater := string(GenerateAppFiles(req)["argocd/imageupdater-contract-app.yaml"])
+	require.NotEmpty(t, updater, "generator must emit an ImageUpdater")
+
+	// Pull the regexp out of `allowTags: "regexp:^...$"` and apply it to the tag.
+	m := regexp.MustCompile(`allowTags:\s*"regexp:([^"]+)"`).FindStringSubmatch(updater)
+	require.Len(t, m, 2, "ImageUpdater must declare an allowTags regexp")
+
+	allow, err := regexp.Compile(m[1])
+	require.NoError(t, err, "allowTags regexp must compile")
+	assert.True(t, allow.MatchString(tag),
+		"tag %q is accepted by the API but rejected by allowTags %q; automated updates would never fire", tag, m[1])
 }
