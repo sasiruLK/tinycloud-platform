@@ -122,17 +122,21 @@ Moving **user-app** builds to GitHub Actions is a **candidate, not a decision**:
 Not yet costed: ephemeral in-cluster BuildKit/Kaniko pods on `k3s-worker-1` with a concurrency cap of
 1, or reshaping the ARM allocation to free a build host.
 
-## Stale Tooling — Do Not Run
+## Removed Tooling
 
-These still assume OCIR or the deleted build VM and will fail or do the wrong thing:
+Deleted on 2026-08-15 because OCIR cannot be used on this tenancy:
 
 - `scripts/deploy/setup-ocir.sh`
 - `scripts/verify-ocir-argocd.sh`
-- `scripts/deploy/bootstrap-build-vm.sh`
-- `scripts/bootstrap-gitops.sh` — its `APPLY_PLATFORM_APPS=1` path still requires `ocir-creds`
 - `docs/deploy/ocir-setup.md`, `docs/deploy/github-actions-ocir.yml`
 
-They are out of scope for this doc pass and are recorded here so nobody runs them.
+`scripts/bootstrap-gitops.sh` was fixed in the same pass: its `APPLY_PLATFORM_APPS=1`
+path now requires `ghcr-creds` rather than `ocir-creds`.
+
+Still present but **do not run** — it provisions a build VM that no longer exists,
+and its fate depends on the unresolved build-plane question above:
+
+- `scripts/deploy/bootstrap-build-vm.sh`
 
 ## Validation Checklist
 

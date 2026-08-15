@@ -1,10 +1,10 @@
 # Cluster Bootstrap
 
-> **Partly stale (2026-08-15).** The cluster is up and healthy — nothing here needs running today.
-> Every OCIR step below is void: OCIR returns HTTP 403 `FREE_TIER_NOT_SUPPORTED` on this tenancy and
-> the lab runs on GHCR with `ghcr-creds`. `scripts/deploy/setup-ocir.sh` and the `ocir-creds` gate in
-> `scripts/bootstrap-gitops.sh` have not been updated yet. Note also that Argo CD and
-> argocd-image-updater were installed **out of band** and are not reinstalled by these scripts.
+> **Reference only (2026-08-15).** The cluster is up and healthy — nothing here needs running today.
+> OCIR returns HTTP 403 `FREE_TIER_NOT_SUPPORTED` on this tenancy, so the lab runs on GHCR with
+> `ghcr-creds`; `setup-ocir.sh` has been deleted and `bootstrap-gitops.sh` now gates on `ghcr-creds`.
+> Note that Argo CD and argocd-image-updater were installed **out of band** and are not reinstalled
+> by these scripts — a rebuild from these steps alone would not restore them.
 > For current state use [infrastructure-runbook.md](./infrastructure-runbook.md).
 
 Run these steps from the admin machine after the ARM and AMD instances have been rebuilt cleanly.
@@ -16,8 +16,7 @@ The current Always Free target is `2 OCPUs / 12 GB` on Ampere A1, so the default
 2. Form the k3s cluster with `./scripts/bootstrap-k3s-cluster.sh`
 3. Install Argo CD and cert-manager only:
    `APPLY_PLATFORM_APPS=0 CLOUDFLARE_API_TOKEN=... ./scripts/bootstrap-gitops.sh`
-4. Create OCIR repo, token, and cluster pull secrets:
-   `SKIP_BUILD_VM_LOGIN=1 ./scripts/deploy/setup-ocir.sh`
+4. Create the `ghcr-creds` pull secret in `argocd` and `tinycloud` (see below)
 5. Apply the base platform apps:
    `CLOUDFLARE_API_TOKEN=... ./scripts/bootstrap-gitops.sh`
 6. Deploy one sample app through `gitops-lab`
@@ -54,14 +53,23 @@ KUBECONFIG_OUT=$HOME/.kube/lab.yaml K3S_VERSION=v1.30.3+k3s1 ./scripts/bootstrap
   - creates `cloudflare-api-token`
   - applies `gitops-lab/argocd/cluster-issuers.yaml`
 - when `APPLY_PLATFORM_APPS=1`:
-  - requires `ocir-creds` in `argocd` and `tinycloud`
+  - requires `ghcr-creds` in `argocd` and `tinycloud`
   - applies `tinycloud-platform`, `tinycloud-api`, `tinycloud-ui`, and `applicationset-user-apps`
 
-`./scripts/deploy/setup-ocir.sh` now supports a cluster-only path:
+Create the pull secret in both namespaces with a GitHub PAT that has `read:packages`:
 
 ```bash
-SKIP_BUILD_VM_LOGIN=1 ./scripts/deploy/setup-ocir.sh
+for ns in argocd tinycloud; do
+  kubectl --kubeconfig ~/.kube/tinycloud-oci.yaml -n "$ns" \
+    create secret docker-registry ghcr-creds \
+    --docker-server=ghcr.io \
+    --docker-username="$GITHUB_USER" \
+    --docker-password="$GITHUB_PAT"
+done
 ```
+
+Onboarded apps do not need this done per namespace: the generated PreSync hook
+copies `ghcr-creds` out of `argocd` into each app namespace.
 
 Required input:
 
@@ -94,6 +102,6 @@ kubectl --kubeconfig ~/.kube/tinycloud-oci.yaml -n tinycloud get pods
 
 ## Failure Rules
 
-- If `bootstrap-gitops.sh` stops on missing `ocir-creds`, run `./scripts/deploy/setup-ocir.sh` and rerun it.
-- Use `SKIP_BUILD_VM_LOGIN=1` whenever the lab is running without a dedicated ARM build host.
+- If `bootstrap-gitops.sh` stops on missing `ghcr-creds`, create the secret as shown above and rerun it.
+
 - If guest OS hostnames still look stale after direct SSH, trust the OCI display names and IPs until the rebuild is complete.

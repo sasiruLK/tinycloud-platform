@@ -14,7 +14,11 @@ const (
 
 var (
 	appNameRegex  = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
-	semverRegex   = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$`)
+	// Tags are immutable 40-character git commit SHAs. This must stay in sync
+	// with the allowTags regexp in imageUpdaterTemplate below: a tag the API
+	// accepts but Image Updater will not match means the app can never receive
+	// an automated update.
+	commitSHARegex = regexp.MustCompile(`^[a-f0-9]{40}$`)
 	imageRegex    = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$`)
 	reservedNames = map[string]bool{
 		"tinycloud-api": true, "tinycloud-ui": true, "tinycloud-platform": true,
@@ -92,8 +96,8 @@ func ValidateCreateAppRequest(req *CreateAppRequest) error {
 	if tag == "" {
 		return fmt.Errorf("tag is required")
 	}
-	if !semverRegex.MatchString(tag) {
-		return fmt.Errorf("tag must be semver (e.g. 1.0.0)")
+	if !commitSHARegex.MatchString(tag) {
+		return fmt.Errorf("tag must be a 40-character git commit SHA (lowercase hex)")
 	}
 
 	if req.Replicas < 1 || req.Replicas > maxReplicas {
