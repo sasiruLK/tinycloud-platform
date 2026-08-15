@@ -1,5 +1,11 @@
 # Phase 2: Observability Offload — Execution Guide
 
+> **Historical plan, not built (2026-08-15).** `build-vm` no longer exists, there is no OCI Vault in
+> this tenancy, and the `tinycloud-alerts` Notifications topic is `ACTIVE` with **zero alarms**, so no
+> alerting exists. `ocir-auth-token` is moot — OCIR is unavailable here (HTTP 403
+> `FREE_TIER_NOT_SUPPORTED`). For current state use
+> [infrastructure-runbook.md](./infrastructure-runbook.md).
+
 **Goal**: Free build-vm capacity by replacing self-hosted monitoring with OCI Always Free managed observability.
 
 ## Architecture (target)

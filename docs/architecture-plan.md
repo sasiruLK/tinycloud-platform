@@ -1,6 +1,40 @@
 # TinyCloud Infrastructure Architecture Plan
 
-> Historical planning document. For the current rebuild target, use `docs/rebuild-oci-free-tier.md` and `docs/infrastructure-runbook.md`.
+> **Historical planning document. Preserved as a record of thinking, not as a target.**
+> For the current state of the lab, use [infrastructure-runbook.md](./infrastructure-runbook.md).
+
+## Void Notice — read before using anything below (2026-08-15)
+
+**Phase 1's registry migration is void. OCIR cannot be used on this tenancy, ever.**
+
+An **authenticated** `oci artifacts container repository list` against this tenancy returns:
+
+```
+HTTP 403  code: FREE_TIER_NOT_SUPPORTED
+```
+
+This is a tenancy-level block on the artifacts service — not auth, not IAM, not policy, not
+`docker login`. It cannot be worked around. Every OCIR line in this document is dead: the "Replace
+GHCR with OCIR" section, the `ocir-creds` pull secret, the BuildKit registry cache in OCIR, the
+Phase 1 checklist, and Decision Log entry 1 ("Why OCIR over GHCR?"). The whole lab runs on GHCR
+(`ghcr.io/sasirulk/...`) with a `ghcr-creds` pull secret, and OCIR has been purged from the code and
+manifests.
+
+Other assumptions here that reality has since overtaken:
+
+- **The VM inventory is stale.** There is no `monitoring-vm`, no `k3s-worker-2` and no `build-vm`.
+  The lab is four VMs: `k3s-control` and `k3s-worker-1` (ARM, in k3s) plus two AMD micros.
+- **No dedicated ARM build VM exists**, so Phase 1's "repurpose monitoring-vm as native ARM64
+  builder" never happened. Where user-app builds should run is an **open question** — see
+  [infrastructure-runbook.md](./infrastructure-runbook.md#open-question--where-do-user-app-builds-run).
+- **Phase 3's Autonomous DB / NoSQL designs are untouched work**, not deployed state.
+- **There is no OCI Vault in this tenancy**, so every Vault-based secrets design here is unbuilt.
+- **Notifications topic `tinycloud-alerts` is `ACTIVE` but has zero alarms**, so no alerting exists.
+
+What in this document is still accurate and worth keeping: the **OCI Always Free limits table** and
+the **shared budget warnings** below — Object Storage 20 GB shared across all tiers, Logging 10 GB/mo
+shared with VCN Flow Logs, Block Volume 200 GB including boot volumes, and Object Storage 50,000 API
+requests/month.
 
 ## Executive Summary
 

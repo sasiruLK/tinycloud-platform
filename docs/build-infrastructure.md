@@ -1,57 +1,46 @@
-# TinyCloud Build Infrastructure
+# TinyCloud Build Infrastructure — Historical
 
-> Historical migration note. For the current target topology, use `docs/rebuild-oci-free-tier.md` and `docs/rebuild-session-checklist.md`.
+> **This describes a system that no longer exists.** Kept as a record of the Phase 1 build design.
+> For current state see [infrastructure-runbook.md](./infrastructure-runbook.md).
 
-Phase 1 moves the build pipeline to a **native ARM64 build-vm** (`10.0.0.107`) and pushes images to **OCIR**.
+Two things in the design below are dead as of `2026-08-15`:
 
-## Topology
+- **`build-vm` at `10.0.0.107` is gone.** There is no dedicated build host. The lab is four VMs:
+  two ARM nodes in k3s and two AMD micros.
+- **OCIR is impossible on this tenancy.** An authenticated
+  `oci artifacts container repository list` returns HTTP 403 `FREE_TIER_NOT_SUPPORTED`. Everything
+  runs from GHCR (`ghcr.io/sasirulk/...`) with the `ghcr-creds` pull secret.
+
+There is also no OCI Vault in this tenancy, so the Vault-rendered `/etc/tinycloud/*.env` boot flow
+below was never realised.
+
+## What Actually Builds Today
+
+`.github/workflows/build-api.yaml` and `.github/workflows/build-ui.yaml` build the platform api and
+ui images on GitHub Actions and push them to GHCR. That path works.
+
+**User-app builds have nowhere to run.** `cmd/build-coordinator` and `cmd/build-runner` still need a
+Docker host and there is no host for them. This is an open question, written up with its trade-off in
+[infrastructure-runbook.md](./infrastructure-runbook.md#open-question--where-do-user-app-builds-run).
+Do not treat GitHub Actions for user apps as decided.
+
+## Historical Design (Phase 1, superseded)
 
 | Host | Private IP | Role |
 |------|------------|------|
-| build-vm | 10.0.0.107 | Coordinator + runner (native ARM64, Docker Buildx) |
-| k3s cluster | — | Pulls from OCIR via `ocir-creds` |
-| amd-utility-1 / amd-utility-2 | 10.0.0.122 / 10.0.0.55 | Legacy AMD hosts outside the critical path |
-
-## Flow
+| build-vm | 10.0.0.107 | Coordinator + runner (native ARM64, Docker Buildx) — **terminated** |
+| k3s cluster | — | Pulled from OCIR via `ocir-creds` — **OCIR unavailable** |
+| amd-utility-1 / amd-utility-2 | 10.0.0.122 / 10.0.0.55 | Utility hosts outside the critical path |
 
 ```text
 TinyCloud API -> Build Coordinator (build-vm) -> Build Runner (same host) -> OCIR -> gitops-lab -> Argo CD
 ```
 
-## OCI Vault Secrets
+Intended secrets, rendered from OCI Vault via instance principals: `BUILD_COORDINATOR_TOKEN`,
+`GITHUB_TOKEN`, and `OCIR_AUTH_TOKEN` / `OCIR_USERNAME`. The runner skipped `--platform linux/arm64`
+on ARM64 and set `BUILD_PLATFORM` only for QEMU cross-builds on AMD. Images used immutable commit-SHA
+tags; a BuildKit registry cache avoided the Object Storage 50k requests/month API cap.
 
-Render into `/etc/tinycloud/*.env` at boot (OCI CLI + instance principals):
-
-- `BUILD_COORDINATOR_TOKEN` — shared secret between API, coordinator, and runner
-- `GITHUB_TOKEN` — PAT for GitHub (API repos, GitOps commits, private clones)
-- `OCIR_AUTH_TOKEN` + `OCIR_USERNAME` — `docker login iad.ocir.io`
-
-See [ocir-setup.md](./deploy/ocir-setup.md) and [infrastructure-runbook.md](./infrastructure-runbook.md).
-
-## Runner Configuration
-
-```bash
-IMAGE_PREFIX=iad.ocir.io/idzghas4xwzv/tinycloud
-BUILD_CACHE_REF=iad.ocir.io/idzghas4xwzv/tinycloud/cache:buildkit
-BUILD_COORDINATOR_URL=http://127.0.0.1:8090   # on build-vm when colocated
-```
-
-On ARM64, the runner skips `--platform linux/arm64` (native build). Set `BUILD_PLATFORM=linux/arm64` only for QEMU cross-build on AMD.
-
-## Bootstrap
-
-```bash
-# On build-vm (150.136.96.152 / 10.0.0.107)
-sudo ./scripts/deploy/bootstrap-build-vm.sh
-```
-
-## Runner Prerequisites
-
-```bash
-docker login iad.ocir.io -u 'idzghas4xwzv/YOUR_OCI_USERNAME'
-docker buildx create --use --name tinycloud 2>/dev/null || docker buildx use tinycloud
-```
-
-Images use immutable commit-SHA tags: `iad.ocir.io/idzghas4xwzv/tinycloud/{app}:{sha}`.
-
-BuildKit registry cache avoids Object Storage API limits (50k req/month).
+The scripts and deploy files for this design — `scripts/deploy/bootstrap-build-vm.sh`,
+`scripts/deploy/setup-ocir.sh`, `docs/deploy/ocir-setup.md`,
+`docs/deploy/github-actions-ocir.yml` — are stale. Do not run them.

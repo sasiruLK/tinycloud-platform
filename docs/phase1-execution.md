@@ -1,6 +1,9 @@
 # Phase 0 + Phase 1 Execution Notes
 
-> Historical execution log. For the current target design, use `docs/rebuild-oci-free-tier.md`.
+> Historical execution log, and much of it is now false: `build-vm` (10.0.0.107) no longer exists and
+> OCIR returns HTTP 403 `FREE_TIER_NOT_SUPPORTED` on this tenancy, so the OCIR steps below are void
+> and the lab runs entirely on GHCR. Do not run `scripts/deploy/setup-ocir.sh`.
+> For current state use [infrastructure-runbook.md](./infrastructure-runbook.md).
 
 Executed 2026-05-30.
 
