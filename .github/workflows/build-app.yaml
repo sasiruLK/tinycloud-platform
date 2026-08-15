@@ -73,21 +73,34 @@ jobs:
 
       - name: Checkout application repository
         id: checkout
+        env:
+          # Read through the environment rather than interpolating into the
+          # script: an unset secret expands to an empty string at template time,
+          # which previously produced `sed "s||REDACTED|g"` — an empty regex that
+          # sed rejects, failing the step even for public repos needing no token.
+          APP_REPO_TOKEN: ${{ secrets.APP_REPO_TOKEN }}
         run: |
-          set -o pipefail
           clog stdout "cloning $REPO_URL @ $REF"
           url="$REPO_URL"
-          case "$url" in
-            https://github.com/*)
-              url="https://x-access-token:${{ secrets.APP_REPO_TOKEN }}@github.com/${url#https://github.com/}"
-              ;;
-          esac
-          if ! git clone --depth 1 --branch "$REF" "$url" src 2>&1 \
-                | sed "s|${{ secrets.APP_REPO_TOKEN }}|REDACTED|g" | tee /tmp/clone.log; then
-            clog stderr "clone failed"
+          if [ -n "$APP_REPO_TOKEN" ]; then
+            case "$url" in
+              https://github.com/*)
+                url="https://x-access-token:${APP_REPO_TOKEN}@github.com/${url#https://github.com/}"
+                ;;
+            esac
+          else
+            clog stdout "no APP_REPO_TOKEN set — cloning anonymously (public repos only)"
+          fi
+
+          # Capture to a file rather than streaming: git echoes the remote URL on
+          # failure, which carries the token.
+          if ! git clone --depth 1 --branch "$REF" "$url" src >/tmp/clone.log 2>&1; then
+            [ -n "$APP_REPO_TOKEN" ] && sed -i "s|${APP_REPO_TOKEN}|REDACTED|g" /tmp/clone.log
+            while IFS= read -r l; do clog stderr "$l"; done < <(tail -20 /tmp/clone.log)
             cstatus "$(jq -nc '{status:"failed",error:"clone failed"}')"
             exit 1
           fi
+
           sha="$(git -C src rev-parse HEAD)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           clog stdout "resolved commit $sha"
