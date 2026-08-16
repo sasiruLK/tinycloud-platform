@@ -219,7 +219,11 @@ func (h *Handler) GetApp(c *fiber.Ctx) error {
 	for _, r := range resources {
 		tops = append(tops, k8s.ResourceNode{Kind: r.Kind, Name: r.Name, Status: r.Status})
 	}
-	tree := toModelNodes(h.K8s.BuildResourceTree(context.Background(), base.Namespace, tops))
+	// The destination namespace, NOT base.Namespace — the latter is where the
+	// Application object lives, which is always argocd. Workloads run elsewhere,
+	// so passing it found no ReplicaSets and every node came back childless.
+	workloadNS := getAppDestinationNamespace(app)
+	tree := toModelNodes(h.K8s.BuildResourceTree(context.Background(), workloadNS, tops))
 
 	detail := models.AppDetail{
 		App:       base,
