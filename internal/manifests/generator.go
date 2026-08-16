@@ -400,6 +400,12 @@ spec:
   dataFrom:
     - extract:
         key: ghcr-creds
+        # CRD defaults again, on the extract this time. The template block above
+        # needed the same treatment; both are fields the API server fills in and
+        # git has to claim, or the diff never closes.
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
 `
 
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
