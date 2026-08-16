@@ -8,6 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/sasiruLK/tinycloud-platform/internal/build/coordinator"
 	"github.com/sasiruLK/tinycloud-platform/internal/build/dispatch"
+	"github.com/sasiruLK/tinycloud-platform/internal/ocilog"
 )
 
 func main() {
@@ -35,8 +36,23 @@ func main() {
 		log.Print("build executor: GitHub Actions")
 	}
 
+	// A second, off-cluster copy of build history. The primary record is the
+	// SQLite file on this node's local-path volume, which does not survive the
+	// node. Nil when OCI_LOG_ID is unset, and a nil emitter is a no-op.
+	emitter, err := ocilog.New(os.Getenv("OCI_LOG_ID"))
+	if err != nil {
+		// Not fatal. Losing the secondary copy of build logs is not a reason to
+		// refuse to run builds at all.
+		log.Printf("oci logging disabled: %v", err)
+	} else if emitter == nil {
+		log.Print("oci logging disabled: OCI_LOG_ID not set")
+	} else {
+		log.Print("oci logging: shipping build events")
+	}
+	defer emitter.Close()
+
 	app := fiber.New(fiber.Config{AppName: "TinyCloud Build Coordinator"})
-	coordinator.NewServer(store, os.Getenv("BUILD_COORDINATOR_TOKEN"), dispatcher).Register(app)
+	coordinator.NewServer(store, os.Getenv("BUILD_COORDINATOR_TOKEN"), dispatcher, emitter).Register(app)
 
 	log.Printf("TinyCloud build coordinator starting on port %s", port)
 	if err := app.Listen(fmt.Sprintf(":%s", port)); err != nil {
