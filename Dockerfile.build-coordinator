@@ -1,3 +1,14 @@
+# Multi-stage cross-compilation build for the build coordinator (local development).
+#
+# CI does NOT use this file — it uses Dockerfile.build-coordinator.release, which
+# copies a binary already cross-compiled natively on the x86 runner. This one
+# exists so `docker build -f Dockerfile.build-coordinator .` on a laptop produces
+# the same image without QEMU.
+#
+# Defaults are linux/arm64 because every k3s node is aarch64. Building an amd64
+# image here would push an artifact no node can run, so the default is the target
+# architecture rather than the build host's. Buildx overrides TARGETOS/TARGETARCH
+# automatically when --platform is passed.
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
@@ -7,7 +18,10 @@ RUN go mod download
 
 COPY . .
 ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETARCH=arm64
+# CGO_ENABLED=0 gives a fully static binary, which distroless/static requires.
+# It is safe here because the SQLite driver is modernc.org/sqlite — pure Go, no
+# libsqlite3 to link against. Swapping to a cgo driver would break this image.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o build-coordinator ./cmd/build-coordinator
 
 FROM gcr.io/distroless/static:nonroot

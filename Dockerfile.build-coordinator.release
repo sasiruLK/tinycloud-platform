@@ -1,0 +1,14 @@
+# Minimal runtime image for CI builds of the build coordinator.
+#
+# Mirrors Dockerfile.release: the binary is pre-compiled natively by GitHub
+# Actions with GOOS=linux GOARCH=arm64, so no QEMU emulation is needed to produce
+# an arm64 image. The `build-coordinator` file must already exist in the build
+# context — see .github/workflows/build-coordinator.yaml.
+FROM gcr.io/distroless/static:nonroot
+
+COPY build-coordinator /build-coordinator
+
+USER 65532:65532
+EXPOSE 8090
+
+ENTRYPOINT ["/build-coordinator"]
