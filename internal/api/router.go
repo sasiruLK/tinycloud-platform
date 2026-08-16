@@ -35,6 +35,7 @@ func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient
 	v1.Post("/apps/:name/restore", h.Restore)
 
 	// Builds
+	v1.Get("/me", h.Me)
 	v1.Get("/apps/:name/resources/:kind/:resource", h.GetResourceManifest)
 	v1.Get("/apps/:name/pods/:pod/logs", h.GetPodLogsByName)
 	v1.Get("/builds", h.ListBuilds)
