@@ -123,6 +123,27 @@ Six alarms are enabled and wired to the topic: `site-unreachable`, `ingress-back
 `instance-unhealthy`, `node-memory-high` (all CRITICAL), `tls-expiring-soon` and `node-cpu-high`
 (WARNING).
 
+### OCI Logging
+
+Log group `tinycloud`, custom log `platform-containers`. The build coordinator ships every runner
+log line and every build lifecycle transition here as JSON, authenticating as the instance through
+the `tinycloud-nodes` dynamic group and the `tinycloud-logging-write` policy. Verified end to end on
+2026-08-16.
+
+This exists because build history is otherwise a single SQLite file on a `local-path` volume pinned
+to `k3s-worker-1`, and local-path does not survive the node. Search it with:
+
+```
+search "<tenancy>/<loggroup>/<log>" | sort by datetime desc
+```
+
+Entries carry `type` (`build.log` or `build.status`), `jobId`, `stream`, `message`, and for status
+transitions `image`, `tag` and `error`. Shipping is best-effort by design: a full buffer drops
+entries rather than blocking the coordinator, since this is the secondary copy.
+
+One entry in job `0f187e4c` is a `[verification]` probe line sent to prove delivery, not build
+output.
+
 ## Design Rules
 
 - Steady state is **2 ARM nodes**: one control plane, one worker
