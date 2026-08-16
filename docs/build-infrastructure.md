@@ -19,10 +19,13 @@ below was never realised.
 `.github/workflows/build-api.yaml` and `.github/workflows/build-ui.yaml` build the platform api and
 ui images on GitHub Actions and push them to GHCR. That path works.
 
-**User-app builds have nowhere to run.** `cmd/build-coordinator` and `cmd/build-runner` still need a
-Docker host and there is no host for them. This is an open question, written up with its trade-off in
-[infrastructure-runbook.md](./infrastructure-runbook.md#open-question--where-do-user-app-builds-run).
-Do not treat GitHub Actions for user apps as decided.
+**Settled 2026-08-15: user-app builds run in GitHub Actions.** The coordinator needs no Docker host
+of its own — it keeps the queue, lifecycle and logs and dispatches the build to a workflow via
+`repository_dispatch`, and the workflow reports back on `/v1/runner/*`. `cmd/build-runner`, the
+polling executor that did need a Docker host, has been deleted; only `cmd/api` and
+`cmd/build-coordinator` remain. The coordinator itself runs as a pod in `tinycloud` as of 2026-08-16.
+
+The coordinator still exposes `/v1/runner/poll` for a polling runner. Nothing calls it.
 
 ## Historical Design (Phase 1, superseded)
 

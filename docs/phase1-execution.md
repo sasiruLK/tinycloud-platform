@@ -51,6 +51,11 @@ sudo -u tinycloud docker buildx ls   # should show linux/arm64 native
 
 ## Rollback
 
-1. Re-enable AMD runner: `sudo systemctl enable --now tinycloud-build-runner` on `amd-utility-1`
+**This rollback is no longer executable, and is kept only as a record of what was done at the time.**
+`tinycloud-build-runner` no longer exists on `amd-utility-1` or anywhere else, `cmd/build-runner` has
+been deleted, and the coordinator moved off `build-vm` into a pod on 2026-08-16. Builds run in GitHub
+Actions.
+
+1. ~~Re-enable AMD runner: `sudo systemctl enable --now tinycloud-build-runner` on `amd-utility-1`~~
 2. Revert API coordinator URL to `http://10.0.0.55:8090`
 3. Set `IMAGE_PREFIX` back to `ghcr.io/sasirulk` in runner env

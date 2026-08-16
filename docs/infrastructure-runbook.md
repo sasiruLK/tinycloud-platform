@@ -172,7 +172,9 @@ Why this and not the alternatives the old section listed:
 - In-cluster BuildKit/Kaniko on `k3s-worker-1` would contend with the workloads it is building for,
   on the one node that also holds the coordinator's database.
 
-`cmd/build-runner` remains in the tree but is not deployed anywhere.
+`cmd/build-runner` has been deleted — it was the polling executor that needed its own Docker host.
+Only `cmd/api` and `cmd/build-coordinator` remain. The coordinator still serves `/v1/runner/poll` for
+such an executor; nothing calls it.
 
 The coordinator itself runs as a pod in `tinycloud` as of 2026-08-16, deployed by Argo CD from
 `gitops-lab/apps/tinycloud-platform/build-coordinator.yaml`. It previously ran as a systemd unit on
