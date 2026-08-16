@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Activity, Boxes, Hammer, History, Server, BookOpen, Sun, Moon, LogOut } from "lucide-react";
+import { Activity, Boxes, Hammer, History, Server, BookOpen, Sun, Moon, LogOut, LogIn } from "lucide-react";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { AppsPage } from "@/pages/AppsPage";
 import { AppPage } from "@/pages/AppPage";
@@ -52,34 +52,95 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 /**
  * The signed-in identity, from the header oauth2-proxy sets after GitHub login.
  * The browser cannot read that header itself, so the API reflects it back.
+ *
+ * "No session" is a state this has to report, not swallow. It used to set user
+ * to null on any failure and render the full console anyway — so an expired
+ * cookie, or a tab left open past the session lifetime, produced a shell with a
+ * Sign out button and nothing anywhere to sign back in with. The only way back
+ * was to know to clear the cookie by hand.
  */
+type Auth = "checking" | "in" | "out";
+
 function useIdentity() {
   const [user, setUser] = useState<string | null>(null);
+  const [auth, setAuth] = useState<Auth>("checking");
   const [signOutUrl, setSignOutUrl] = useState("/oauth2/sign_out?rd=/");
 
   useEffect(() => {
     let cancelled = false;
     fetch(`${API_BASE}/v1/me`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((b) => {
-        if (cancelled || !b) return;
+      .then(async (r) => {
+        if (cancelled) return;
+        // oauth2-proxy answers an unauthenticated request with its own sign-in
+        // page and a 401/403 — so a non-ok response here means no session,
+        // not a broken API.
+        if (r.status === 401 || r.status === 403) {
+          setAuth("out");
+          return;
+        }
+        if (!r.ok) {
+          // Something else is wrong (API down, 502). Don't claim the user is
+          // signed out and send them through a login they don't need.
+          setAuth("in");
+          return;
+        }
+        const b = await r.json();
         const d = b.data ?? b;
         setUser(d.user ?? null);
         if (d.signOutUrl) setSignOutUrl(d.signOutUrl);
+        setAuth("in");
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setAuth("in");
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return { user, signOutUrl };
+  return { user, auth, signOutUrl };
+}
+
+/**
+ * Shown when there is no session. Returns to whatever page was being viewed:
+ * oauth2-proxy takes the target as ?rd= and validates it against
+ * --whitelist-domain, so a relative path is both accepted and safe.
+ */
+function SignIn() {
+  const loc = useLocation();
+  const rd = encodeURIComponent(loc.pathname + loc.search);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4">
+      <div className="rise w-full max-w-sm rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
+        <span className="font-mono text-sm font-semibold tracking-tight text-[var(--color-accent)]">
+          tinycloud
+        </span>
+        <h1 className="mt-3 font-mono text-base text-[var(--color-ink)]">Session ended</h1>
+        <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-muted)]">
+          The ops console is restricted to a single GitHub account. Sign in to continue.
+        </p>
+        <a
+          href={`/oauth2/start?rd=${rd}`}
+          className="mt-5 flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-3 py-2 font-mono text-xs font-medium text-[var(--color-bg)] transition-opacity hover:opacity-90"
+        >
+          <LogIn className="h-4 w-4" />
+          Sign in with GitHub
+        </a>
+      </div>
+    </div>
+  );
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  const { user, signOutUrl } = useIdentity();
+  const { user, auth, signOutUrl } = useIdentity();
   const { effective, toggle } = useTheme();
   const loc = useLocation();
+
+  // Nothing is rendered until the session is known: showing the console and
+  // then replacing it with a login screen reads as a crash.
+  if (auth === "checking") return <div className="min-h-screen bg-[var(--color-bg)]" />;
+  if (auth === "out") return <SignIn />;
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
