@@ -211,11 +211,22 @@ func (h *Handler) GetApp(c *fiber.Ctx) error {
 	repoURL, _, _ := unstructured.NestedString(app.Object, "spec", "source", "repoURL")
 	path, _, _ := unstructured.NestedString(app.Object, "spec", "source", "path")
 
+	base := convertUnstructuredToApp(app)
+
+	// Expand the flat resource list into a tree. Namespace comes from the live
+	// Application rather than the request, because the two have diverged before.
+	tops := make([]k8s.ResourceNode, 0, len(resources))
+	for _, r := range resources {
+		tops = append(tops, k8s.ResourceNode{Kind: r.Kind, Name: r.Name, Status: r.Status})
+	}
+	tree := toModelNodes(h.K8s.BuildResourceTree(context.Background(), base.Namespace, tops))
+
 	detail := models.AppDetail{
-		App:       convertUnstructuredToApp(app),
+		App:       base,
 		Repo:      repoURL,
 		Path:      path,
 		Resources: resources,
+		Tree:      tree,
 	}
 
 	return response.JSON(c, detail)
@@ -602,4 +613,21 @@ func (h *Handler) enrichBuildDeploymentStatus(ctx context.Context, build *buildt
 		build.DeployStatus = "argocd_progressing"
 		build.VerificationError = ""
 	}
+}
+
+// toModelNodes converts the k8s tree into the API model, preserving nesting.
+func toModelNodes(in []k8s.ResourceNode) []models.ResourceNode {
+	out := make([]models.ResourceNode, 0, len(in))
+	for _, n := range in {
+		out = append(out, models.ResourceNode{
+			Kind:      n.Kind,
+			Name:      n.Name,
+			Namespace: n.Namespace,
+			Status:    n.Status,
+			Health:    n.Health,
+			Detail:    n.Detail,
+			Children:  toModelNodes(n.Children),
+		})
+	}
+	return out
 }
