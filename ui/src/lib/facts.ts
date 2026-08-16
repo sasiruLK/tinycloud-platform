@@ -43,6 +43,12 @@ export const TOPOLOGY = [
 
 export const LIMITS: Limit[] = [
   {
+    name: "Idle free databases",
+    value: "2 Autonomous DB + 1 MySQL HeatWave, all unprovisioned",
+    severity: "watch",
+    note: "The largest untouched allowance in the tenancy. MySQL HeatWave was previously recorded here as blocked, which was wrong: mysql-free-count and mysql-heatwave-free-count both show 1 available, in AD-1 only. The subnet is regional, so an AD-1 database is still reachable from the AD-3 cluster nodes. Nothing in the platform needs a database today except the build coordinator's SQLite file, which is pinned to one node. Provisioning either without a workload just creates something idle enough to be reclaimed.",
+  },
+  {
     name: "Ampere compute",
     value: "2 OCPU / 12 GB — fully used",
     severity: "hard",
@@ -90,8 +96,8 @@ export const BLOCKED: Blocked[] = [
   { service: "File Storage", evidence: "file-system-count 0" },
   { service: "Kubernetes (OKE)", evidence: "cluster-count 0" },
   { service: "Queue", evidence: "queues-max-count 0" },
-  { service: "NoSQL", evidence: "0 read and write units" },
-  { service: "MySQL / PostgreSQL", evidence: "all shapes 0" },
+  { service: "NoSQL", evidence: "0 read and write units, 0 GB table size" },
+  { service: "PostgreSQL", evidence: "all 6 limits are 0" },
   { service: "OpenSearch / Redis", evidence: "node-count 0" },
   { service: "WAF", evidence: "policy-count 0" },
   { service: "NAT Gateway", evidence: "nat-gateway-count 0" },
@@ -169,4 +175,4 @@ export const GOTCHAS: Gotcha[] = [
   },
 ];
 
-export const VERIFIED_ON = "2026-08-15";
+export const VERIFIED_ON = "2026-08-16";
