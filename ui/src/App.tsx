@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Activity, Boxes, Hammer, History, Server, BookOpen, Sun, Moon } from "lucide-react";
+import { Activity, Boxes, Hammer, History, Server, BookOpen, Sun, Moon, LogOut } from "lucide-react";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { AppsPage } from "@/pages/AppsPage";
 import { AppPage } from "@/pages/AppPage";
@@ -47,7 +47,37 @@ function useTheme() {
   return { effective, toggle: () => setTheme(effective === "dark" ? "light" : "dark") };
 }
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+
+/**
+ * The signed-in identity, from the header oauth2-proxy sets after GitHub login.
+ * The browser cannot read that header itself, so the API reflects it back.
+ */
+function useIdentity() {
+  const [user, setUser] = useState<string | null>(null);
+  const [signOutUrl, setSignOutUrl] = useState("/oauth2/sign_out?rd=/");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/v1/me`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        if (cancelled || !b) return;
+        const d = b.data ?? b;
+        setUser(d.user ?? null);
+        if (d.signOutUrl) setSignOutUrl(d.signOutUrl);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { user, signOutUrl };
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
+  const { user, signOutUrl } = useIdentity();
   const { effective, toggle } = useTheme();
   const loc = useLocation();
 
@@ -81,13 +111,32 @@ function Shell({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
 
-          <button
-            onClick={toggle}
-            aria-label={`Switch to ${effective === "dark" ? "light" : "dark"} theme`}
-            className="ml-auto rounded-[var(--radius-sm)] p-1.5 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-ink)]"
-          >
-            {effective === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            {user && (
+              <span className="hidden font-mono text-[11px] text-[var(--color-muted)] sm:inline">
+                {user}
+              </span>
+            )}
+
+            <button
+              onClick={toggle}
+              aria-label={`Switch to ${effective === "dark" ? "light" : "dark"} theme`}
+              className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-ink)]"
+            >
+              {effective === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+
+            {/* A link, not a fetch: oauth2-proxy handles this path itself and
+                needs to clear the session cookie and redirect the browser. */}
+            <a
+              href={signOutUrl}
+              aria-label="Sign out"
+              title={user ? `Sign out of ${user}` : "Sign out"}
+              className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-surface)] hover:text-[var(--color-crit)]"
+            >
+              <LogOut className="h-4 w-4" />
+            </a>
+          </div>
         </div>
       </header>
 

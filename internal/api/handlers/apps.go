@@ -699,3 +699,18 @@ func (h *Handler) GetPodLogsByName(c *fiber.Ctx) error {
 		"lines":      strings.Split(strings.TrimRight(logs, "\n"), "\n"),
 	})
 }
+
+// Me returns the signed-in identity, so the UI can show who is logged in and
+// offer a way out. The value comes from the header oauth2-proxy sets after a
+// successful GitHub login; the middleware has already rejected the request if
+// it is absent.
+func (h *Handler) Me(c *fiber.Ctx) error {
+	user, _ := c.Locals("user").(string)
+	return response.JSON(c, fiber.Map{
+		"user":  user,
+		"email": c.Get("X-Auth-Request-Email"),
+		// oauth2-proxy owns these paths and handles them before the request
+		// reaches this API, so the UI must link to them rather than call them.
+		"signOutUrl": "/oauth2/sign_out?rd=" + c.Protocol() + "://" + c.Hostname() + "/",
+	})
+}
