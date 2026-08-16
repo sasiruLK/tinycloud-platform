@@ -11,6 +11,7 @@ import (
 	"github.com/sasiruLK/tinycloud-platform/internal/build/types"
 	"github.com/sasiruLK/tinycloud-platform/internal/git"
 	"github.com/sasiruLK/tinycloud-platform/internal/manifests"
+	"github.com/sasiruLK/tinycloud-platform/internal/ocilog"
 )
 
 const maxAttempts = 2
@@ -20,12 +21,14 @@ type Server struct {
 	token      string
 	git        *git.GitOps
 	dispatcher *dispatch.Dispatcher
+	events     *ocilog.Emitter
 }
 
 // NewServer wires the coordinator. dispatcher may be nil, in which case builds
 // are accepted and left queued for a polling runner via /v1/runner/poll.
-func NewServer(store *Store, token string, dispatcher *dispatch.Dispatcher) *Server {
-	return &Server{store: store, token: token, git: git.NewGitOps(), dispatcher: dispatcher}
+// events may be nil, in which case nothing is shipped to OCI Logging.
+func NewServer(store *Store, token string, dispatcher *dispatch.Dispatcher, events *ocilog.Emitter) *Server {
+	return &Server{store: store, token: token, git: git.NewGitOps(), dispatcher: dispatcher, events: events}
 }
 
 func (s *Server) Register(app *fiber.App) {
@@ -173,6 +176,14 @@ func (s *Server) appendRunnerLog(c *fiber.Ctx) error {
 	if err := s.store.AppendLog(context.Background(), c.Params("id"), req.Stream, req.Message); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to append log"})
 	}
+	// After the store, not before: the database is the record of truth and
+	// shipping a line that failed to persist would make the two disagree.
+	s.events.Emit(ocilog.Event{
+		Type:    "build.log",
+		JobID:   c.Params("id"),
+		Stream:  req.Stream,
+		Message: req.Message,
+	})
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
@@ -200,6 +211,14 @@ func (s *Server) updateRunnerStatus(c *fiber.Ctx) error {
 	if err := s.store.UpdateRunnerStatus(context.Background(), c.Params("id"), req); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update job"})
 	}
+	s.events.Emit(ocilog.Event{
+		Type:   "build.status",
+		JobID:  c.Params("id"),
+		Status: req.Status,
+		Image:  req.Image,
+		Tag:    req.Tag,
+		Error:  req.Error,
+	})
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
