@@ -36,6 +36,7 @@ func (s *Server) Register(app *fiber.App) {
 	api := app.Group("/v1")
 	api.Use(s.auth)
 	api.Post("/builds", s.createBuild)
+	api.Get("/builds", s.listBuilds)
 	api.Get("/builds/:id", s.getBuild)
 	api.Get("/builds/:id/logs", s.getLogs)
 	api.Post("/runner/poll", s.pollRunner)
@@ -124,6 +125,16 @@ func (s *Server) createBuild(c *fiber.Ctx) error {
 		BuildID: job.ID,
 		Status:  job.Status,
 	})
+}
+
+// listBuilds returns recent build history. The UI has no other way to discover
+// a build ID, so without this the entire deploy history is unreachable.
+func (s *Server) listBuilds(c *fiber.Ctx) error {
+	jobs, err := s.store.ListJobs(context.Background(), c.QueryInt("limit", 50))
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list builds"})
+	}
+	return c.JSON(fiber.Map{"builds": jobs})
 }
 
 func (s *Server) getBuild(c *fiber.Ctx) error {
