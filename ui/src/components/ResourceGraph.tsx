@@ -48,10 +48,14 @@ export function ResourceGraph({
   appName,
   appHealth,
   nodes,
+  selected,
+  onSelect,
 }: {
   appName: string;
   appHealth?: string;
   nodes: ResourceNode[];
+  selected?: ResourceNode | null;
+  onSelect?: (n: ResourceNode) => void;
 }) {
   const { placed, width, height } = useMemo(() => layout(appName, appHealth, nodes), [appName, appHealth, nodes]);
 
@@ -99,22 +103,57 @@ export function ResourceGraph({
         </svg>
 
         {placed.map((p, i) => (
-          <GraphCard key={p.id} placed={p} index={i} />
+          <GraphCard
+            key={p.id}
+            placed={p}
+            index={i}
+            selected={
+              !!selected && selected.kind === p.node.kind && selected.name === p.node.name
+            }
+            onSelect={onSelect}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function GraphCard({ placed, index }: { placed: Placed; index: number }) {
+function GraphCard({
+  placed,
+  index,
+  selected,
+  onSelect,
+}: {
+  placed: Placed;
+  index: number;
+  selected: boolean;
+  onSelect?: (n: ResourceNode) => void;
+}) {
   const { node, depth, y } = placed;
+  // The synthetic Application root is a label, not a real object to inspect.
+  const clickable = !!onSelect && node.kind !== "Application";
   const level = levelOf(node.health || node.status);
   const tone = TONE[level];
   const Icon = KIND_ICON[node.kind] ?? Box;
 
   return (
     <div
-      className={`rise absolute flex items-center gap-2 rounded-[var(--radius-md)] border bg-[var(--color-surface)] px-2.5 ${tone.ring}`}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? () => onSelect!(node) : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect!(node);
+              }
+            }
+          : undefined
+      }
+      className={`rise absolute flex items-center gap-2 rounded-[var(--radius-md)] border bg-[var(--color-surface)] px-2.5 transition-shadow ${tone.ring} ${
+        clickable ? "cursor-pointer hover:border-[var(--color-accent)]" : ""
+      } ${selected ? "ring-2 ring-[var(--color-accent)]" : ""}`}
       style={{
         left: depth * (CARD_W + COL_GAP),
         top: y,

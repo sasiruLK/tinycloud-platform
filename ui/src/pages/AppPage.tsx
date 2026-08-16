@@ -3,8 +3,9 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useApp } from "@/hooks/useApp";
 import { apiClient } from "@/api/client";
 import { ApiError } from "@/api/error";
-import { LogViewer } from "@/components/LogViewer";
 import { ResourceGraph } from "@/components/ResourceGraph";
+import { ResourceDetail } from "@/components/ResourceDetail";
+import type { ResourceNode } from "@/types/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import { getPlatformAppUrl } from "@/lib/tinycloud";
 import { RefreshCw, GitBranch, FolderOpen, RotateCcw, Loader2, ExternalLink, PauseCircle } from "lucide-react";
 
 export function AppPage() {
+  const [selectedNode, setSelectedNode] = useState<ResourceNode | null>(null);
   const { name } = useParams<{ name: string }>();
   const [searchParams] = useSearchParams();
   const expectPending = searchParams.get("pending") === "1";
@@ -342,8 +344,6 @@ export function AppPage() {
         </Button>
       </div>
 
-      <LogViewer appName={app.name} />
-
       <section className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)]">
         <header className="flex items-center justify-between border-b border-[var(--color-line)] px-3 py-2">
           <h2 className="font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
@@ -355,6 +355,8 @@ export function AppPage() {
         </header>
         {/* Falls back to the flat list when the API predates the tree. */}
         <ResourceGraph
+          selected={selectedNode}
+          onSelect={setSelectedNode}
           appName={app.name}
           appHealth={app.health}
           nodes={
@@ -368,6 +370,14 @@ export function AppPage() {
           }
         />
       </section>
+
+      {selectedNode && (
+        <ResourceDetail
+          appName={app.name}
+          node={selectedNode}
+          onClose={() => setSelectedNode(null)}
+        />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -104,8 +105,8 @@ func (c *Client) GetAppTargetRevision(ctx context.Context, name string) (string,
 // GetPodLogs returns logs from a pod
 func (c *Client) GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines int64) (string, error) {
 	req := c.K8s.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
-		Container:  container,
-		TailLines:  &tailLines,
+		Container: container,
+		TailLines: &tailLines,
 	})
 	stream, err := req.Stream(ctx)
 	if err != nil {
@@ -247,4 +248,70 @@ func podDetail(p *corev1.Pod) string {
 		return fmt.Sprintf("%d restarts · %s", restarts, p.Spec.NodeName)
 	}
 	return p.Spec.NodeName
+}
+
+// GetResourceManifest returns the live object for one node of the resource
+// graph, so clicking a node can show what is actually running rather than what
+// git says should be.
+//
+// Typed clients for the four kinds the graph produces, rather than a RESTMapper
+// over the dynamic client: this platform generates a known, small set of kinds,
+// and an explicit switch fails loudly on anything unexpected instead of
+// silently returning nothing.
+func (c *Client) GetResourceManifest(ctx context.Context, namespace, kind, name string) (map[string]any, error) {
+	if namespace == "" || name == "" {
+		return nil, fmt.Errorf("namespace and name are required")
+	}
+
+	var obj any
+	var err error
+
+	switch kind {
+	case "Pod":
+		obj, err = c.K8s.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	case "Service":
+		obj, err = c.K8s.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+	case "Deployment":
+		obj, err = c.K8s.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	case "ReplicaSet":
+		obj, err = c.K8s.AppsV1().ReplicaSets(namespace).Get(ctx, name, metav1.GetOptions{})
+	default:
+		return nil, fmt.Errorf("unsupported kind %q", kind)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Round-trip through JSON so the response is the plain object, and strip the
+	// noise Kubernetes adds that obscures the parts worth reading.
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	if md, ok := out["metadata"].(map[string]any); ok {
+		delete(md, "managedFields")
+		if ann, ok := md["annotations"].(map[string]any); ok {
+			delete(ann, "kubectl.kubernetes.io/last-applied-configuration")
+		}
+	}
+	out["kind"] = kind
+	return out, nil
+}
+
+// GetPodContainers lists container names, so a multi-container pod can be asked
+// for the right one rather than defaulting to the first and looking empty.
+func (c *Client) GetPodContainers(ctx context.Context, namespace, podName string) ([]string, error) {
+	pod, err := c.K8s.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(pod.Spec.Containers))
+	for _, ct := range pod.Spec.Containers {
+		names = append(names, ct.Name)
+	}
+	return names, nil
 }
