@@ -4,7 +4,7 @@ import { useApp } from "@/hooks/useApp";
 import { apiClient } from "@/api/client";
 import { ApiError } from "@/api/error";
 import { LogViewer } from "@/components/LogViewer";
-import { ResourceTree } from "@/components/ResourceTree";
+import { ResourceGraph } from "@/components/ResourceGraph";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
@@ -350,11 +350,13 @@ export function AppPage() {
             Resources
           </h2>
           <span className="font-mono text-[10px] text-[var(--color-faint)]">
-            nested by ownerReference
+            ownership graph
           </span>
         </header>
         {/* Falls back to the flat list when the API predates the tree. */}
-        <ResourceTree
+        <ResourceGraph
+          appName={app.name}
+          appHealth={app.health}
           nodes={
             app.tree?.length
               ? app.tree
