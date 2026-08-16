@@ -390,6 +390,10 @@ spec:
     creationPolicy: Orphan
     deletionPolicy: Retain
     template:
+      # CRD defaults, written out so the generated app does not sit permanently
+      # OutOfSync against fields the API server fills in.
+      engineVersion: v2
+      mergePolicy: Replace
       type: kubernetes.io/dockerconfigjson
       data:
         .dockerconfigjson: '{{ index . ".dockerconfigjson" }}'
