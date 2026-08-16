@@ -139,6 +139,11 @@ export const DECISIONS: Decision[] = [
 
 export const GOTCHAS: Gotcha[] = [
   {
+    title: "Sync is not Rebuild",
+    detail:
+      "Sync reconciles what git already says, so it deploys nothing new. Rebuild produces a new image from the latest commit on the app's branch — it is the only control that gets a code change onto the cluster. Until 2026-08-16 the second one did not exist: build_jobs.app_name was UNIQUE, so an app could be built exactly once and every later attempt returned 409. A rebuild is still a button, not something a push triggers.",
+  },
+  {
     title: "A zero limit outranks a working API",
     detail:
       "Health Checks answers list requests with HTTP 200 and an empty set while its monitor limit is 0. NoSQL reports an available environment with zero read and write units. Always check oci limits value list before designing around a service.",

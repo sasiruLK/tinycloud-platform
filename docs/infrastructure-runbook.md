@@ -163,6 +163,24 @@ the logs, and dispatches the actual build to a workflow via `repository_dispatch
 reports back on `/v1/runner/jobs/:id/logs` and `/status`, so build output still lands in the
 platform's own database and console — the coordinator was not hollowed out, only its executor moved.
 
+### Rebuilding an app
+
+`POST /v1/apps/:name/rebuild` on the coordinator, surfaced as **Rebuild** next to Sync in the
+console. Added 2026-08-16.
+
+Until then an app could be built exactly once. `build_jobs.app_name` was `UNIQUE`, so the row
+recording a second build could not exist — a new commit to an app repo could never reach the
+cluster, and the create path returned `409` instead of running a pipeline. Image Updater would
+deploy a newer image the moment one appeared; nothing ever produced one.
+
+The rebuild takes no parameters. Repo, ref, port and replicas come from the app's previous build,
+so a rebuild cannot quietly become an edit, and only one build per app runs at a time — two racing
+builds commit the same manifests and the loser's image is discarded silently.
+
+**Still missing: the trigger.** A rebuild is a button someone presses, not something a push to an
+app repo causes. Closing that needs a webhook, polling, or a schedule, and each is a different
+trade between latency and how much access to someone else's repository the platform has to hold.
+
 Why this and not the alternatives the old section listed:
 
 - A dedicated ARM build VM is impossible: the Ampere allocation is `2 OCPU / 12 GB` and both ARM
