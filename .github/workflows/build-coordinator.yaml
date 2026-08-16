@@ -1,0 +1,142 @@
+name: Build and Push Build Coordinator Image
+
+# The build coordinator used to be a systemd unit on k3s-worker-1, updated by
+# cross-compiling locally and scp'ing the binary over. That drifted: a stale
+# binary answered 404 for an endpoint that existed in main, which surfaced to
+# users as a 502. This workflow makes the coordinator deploy itself like the API
+# and UI do — push to main, image lands in GHCR, Image Updater rolls the pod.
+#
+# Modelled on build-api.yaml: cross-compile natively on the x86 runner, then copy
+# the finished arm64 binary into a scratch image. No QEMU, so a build takes
+# seconds rather than minutes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/build-coordinator/**'
+      - 'internal/build/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile.build-coordinator*'
+      - '.github/workflows/build-coordinator.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-build-coordinator
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # ── Step 1: Checkout ─────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Step 2: Setup Go (native x86_64) ─────────────
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: false
+
+      - name: Verify Go version
+        run: |
+          echo "=== Go Version ==="
+          go version
+          echo ""
+          echo "=== Go Env ==="
+          go env GOOS GOARCH GOTOOLCHAIN
+
+      # ── Step 3: Download dependencies ──────────────────
+      - name: Download Go modules
+        run: |
+          echo "=== Downloading modules ==="
+          go mod download
+
+      # ── Step 4: Cross-compile ARM64 binary natively ────
+      # CGO_ENABLED=0 is required, not just preferred: the runtime image is
+      # distroless/static, which has no libc. It works because the SQLite driver
+      # is modernc.org/sqlite (pure Go).
+      - name: Build ARM64 binary
+        run: |
+          echo "=== Building linux/arm64 binary ==="
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags="-w -s" \
+            -o build-coordinator \
+            ./cmd/build-coordinator
+
+          echo ""
+          echo "=== Binary verification ==="
+          file build-coordinator
+          ls -lh build-coordinator
+
+          echo ""
+          echo "=== Binary checksum ==="
+          sha256sum build-coordinator
+
+      # Fail loudly rather than pushing an image no node can run. `file` reports
+      # "ARM aarch64" for a correct build; anything else means the cross-compile
+      # env was lost and the image would CrashLoop with "exec format error".
+      - name: Assert binary is static arm64
+        run: |
+          info=$(file build-coordinator)
+          echo "$info"
+          echo "$info" | grep -q "ARM aarch64" || { echo "not an arm64 binary"; exit 1; }
+          echo "$info" | grep -q "statically linked" || { echo "not statically linked"; exit 1; }
+
+      # ── Step 5: Setup Docker Buildx ──────────────────
+      # Buildx needed ONLY for --platform metadata, NOT for emulation
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Step 6: Login to GHCR ─────────────────────────
+      # Use GHCR_PAT instead of GITHUB_TOKEN for reliable package write access
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      # ── Step 7: Compute tags ──────────────────────────
+      # prefix= yields the raw 40-char SHA with no "sha-" prefix, which is what
+      # the ImageUpdater allowTags regexp ^[a-f0-9]{40}$ matches. Changing this
+      # format silently stops all automatic deploys.
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # ── Step 8: Build and push ARM64 image ───────────
+      # No QEMU needed because the binary is pre-compiled.
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.build-coordinator.release
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # ── Step 9: Verify push ───────────────────────────
+      - name: Verify push
+        run: |
+          PRIMARY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          echo "=== Verifying $PRIMARY_TAG on GHCR ==="
+          docker buildx imagetools inspect "$PRIMARY_TAG" || true
+
+          echo ""
+          echo "=== Build Summary ==="
+          echo "Image: $PRIMARY_TAG"
+          echo "Status: pushed successfully"
