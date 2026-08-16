@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sasiruLK/tinycloud-platform/internal/build/types"
@@ -35,11 +36,45 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// buildJobColumnsDDL is the canonical shape of build_jobs, ordered.
+//
+// It is used both to create the table and to rebuild it during migration, so a
+// rebuild converges on this schema instead of preserving whatever columns it
+// happened to find. A database that predates a column gets it, with its
+// default, rather than carrying the gap forward.
+var buildJobColumnsDDL = [][2]string{
+	{"id", "TEXT PRIMARY KEY"},
+	{"app_name", "TEXT NOT NULL"},
+	{"repo_url", "TEXT NOT NULL"},
+	{"ref", "TEXT NOT NULL"},
+	{"commit_sha", "TEXT NOT NULL DEFAULT ''"},
+	{"framework", "TEXT NOT NULL DEFAULT ''"},
+	{"image", "TEXT NOT NULL DEFAULT ''"},
+	{"tag", "TEXT NOT NULL DEFAULT ''"},
+	{"status", "TEXT NOT NULL"},
+	{"attempts", "INTEGER NOT NULL DEFAULT 0"},
+	{"replicas", "INTEGER NOT NULL DEFAULT 1"},
+	{"port", "INTEGER NOT NULL DEFAULT 8080"},
+	{"env_json", "TEXT NOT NULL DEFAULT '{}'"},
+	{"gitops_commit_sha", "TEXT NOT NULL DEFAULT ''"},
+	{"gitops_path", "TEXT NOT NULL DEFAULT ''"},
+	{"deploy_status", "TEXT NOT NULL DEFAULT ''"},
+	{"argo_sync_status", "TEXT NOT NULL DEFAULT ''"},
+	{"argo_health", "TEXT NOT NULL DEFAULT ''"},
+	{"app_url", "TEXT NOT NULL DEFAULT ''"},
+	{"verification_error", "TEXT NOT NULL DEFAULT ''"},
+	{"error", "TEXT NOT NULL DEFAULT ''"},
+	{"created_at", "TEXT NOT NULL"},
+	{"updated_at", "TEXT NOT NULL"},
+	{"started_at", "TEXT"},
+	{"finished_at", "TEXT"},
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS build_jobs (
 			id TEXT PRIMARY KEY,
-			app_name TEXT NOT NULL UNIQUE,
+			app_name TEXT NOT NULL,
 			repo_url TEXT NOT NULL,
 			ref TEXT NOT NULL,
 			commit_sha TEXT NOT NULL DEFAULT '',
@@ -84,7 +119,125 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureBuildJobColumns(ctx); err != nil {
 		return err
 	}
+	if err := s.dropAppNameUnique(ctx); err != nil {
+		return err
+	}
 	return nil
+}
+
+// dropAppNameUnique removes the UNIQUE constraint that build_jobs.app_name
+// originally carried.
+//
+// That constraint encoded an assumption that turned out to be wrong: that an
+// app is built once. It meant a second commit to an app could never be built,
+// because the row recording the build could not exist. The platform could
+// create an app and then never update it again, which is most of the point of
+// a platform.
+//
+// SQLite cannot drop a constraint in place, so the table is rebuilt. This runs
+// once: afterwards the auto-index is gone and the check below is false.
+func (s *Store) dropAppNameUnique(ctx context.Context) error {
+	unique, err := s.hasUniqueAppName(ctx)
+	if err != nil || !unique {
+		return err
+	}
+
+	existing, err := s.buildJobColumns(ctx)
+	if err != nil {
+		return err
+	}
+
+	defs := make([]string, 0, len(buildJobColumnsDDL))
+	var carried []string
+	for _, c := range buildJobColumnsDDL {
+		defs = append(defs, c[0]+" "+c[1])
+		// Only copy columns the old table actually had; anything newer takes
+		// its default rather than failing the migration.
+		if existing[c[0]] {
+			carried = append(carried, c[0])
+		}
+	}
+	list := strings.Join(carried, ", ")
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, stmt := range []string{
+		"CREATE TABLE build_jobs_rebuilt (" + strings.Join(defs, ", ") + ")",
+		"INSERT INTO build_jobs_rebuilt (" + list + ") SELECT " + list + " FROM build_jobs",
+		"DROP TABLE build_jobs",
+		"ALTER TABLE build_jobs_rebuilt RENAME TO build_jobs",
+		"CREATE INDEX IF NOT EXISTS idx_build_jobs_status_created ON build_jobs(status, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_build_jobs_app_created ON build_jobs(app_name, created_at)",
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("drop app_name unique: %s: %w", stmt, err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) hasUniqueAppName(ctx context.Context) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA index_list(build_jobs)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	type idx struct {
+		name   string
+		unique bool
+	}
+	var found []idx
+	for rows.Next() {
+		var seq int
+		var name, origin string
+		var uniq, partial int
+		if err := rows.Scan(&seq, &name, &uniq, &origin, &partial); err != nil {
+			return false, err
+		}
+		if uniq == 1 {
+			found = append(found, idx{name: name})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	for _, i := range found {
+		cols, err := s.indexColumns(ctx, i.name)
+		if err != nil {
+			return false, err
+		}
+		if len(cols) == 1 && cols[0] == "app_name" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *Store) indexColumns(ctx context.Context, index string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA index_info(`+index+`)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cols []string
+	for rows.Next() {
+		var seqno, cid int
+		var name sql.NullString
+		if err := rows.Scan(&seqno, &cid, &name); err != nil {
+			return nil, err
+		}
+		if name.Valid {
+			cols = append(cols, name.String)
+		}
+	}
+	return cols, rows.Err()
 }
 
 func (s *Store) ensureBuildJobColumns(ctx context.Context) error {
@@ -138,7 +291,7 @@ func (s *Store) GetJobByAppName(ctx context.Context, appName string) (*types.Bui
 	row := s.db.QueryRowContext(ctx, `SELECT id, app_name, repo_url, ref, commit_sha, framework, image, tag,
 		status, attempts, replicas, port, env_json, gitops_commit_sha, gitops_path, deploy_status,
 		argo_sync_status, argo_health, app_url, verification_error, error, created_at, updated_at, started_at, finished_at
-		FROM build_jobs WHERE app_name = ?`, appName)
+		FROM build_jobs WHERE app_name = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, appName)
 	job, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

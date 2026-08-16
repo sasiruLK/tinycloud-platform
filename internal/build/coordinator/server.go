@@ -39,6 +39,7 @@ func (s *Server) Register(app *fiber.App) {
 	api := app.Group("/v1")
 	api.Use(s.auth)
 	api.Post("/builds", s.createBuild)
+	api.Post("/apps/:name/rebuild", s.rebuildApp)
 	api.Get("/builds", s.listBuilds)
 	api.Get("/builds/:id", s.getBuild)
 	api.Get("/builds/:id/logs", s.getLogs)
@@ -220,6 +221,74 @@ func (s *Server) updateRunnerStatus(c *fiber.Ctx) error {
 		Error:  req.Error,
 	})
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// rebuildApp builds an app that already exists.
+//
+// createBuild deliberately refuses this: it is the "create an app" path, and an
+// app whose manifests are already in the GitOps repo must not be created twice.
+// But refusing everywhere meant an app could be built exactly once and never
+// again -- a new commit to an app repo could never reach the cluster, because
+// nothing would build an image for it.
+//
+// The parameters are not taken from the caller. They are read from the app's
+// last build, so a rebuild cannot silently change the repo, ref, port or
+// replica count -- that would be an edit disguised as a retry. Changing those
+// is a separate operation.
+func (s *Server) rebuildApp(c *fiber.Ctx) error {
+	appName := c.Params("name")
+	if appName == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "app name required"})
+	}
+
+	ctx := context.Background()
+	previous, err := s.store.GetJobByAppName(ctx, appName)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to look up app"})
+	}
+	if previous == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "no build found for app"})
+	}
+
+	// One build at a time per app. Two concurrent builds race to commit the
+	// same manifests and the loser's image is silently discarded.
+	switch previous.Status {
+	case types.StatusQueued, types.StatusRunning:
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "build already in progress for app"})
+	}
+
+	job := &types.BuildJob{
+		ID:       uuid.NewString(),
+		AppName:  previous.AppName,
+		RepoURL:  previous.RepoURL,
+		Ref:      previous.Ref,
+		Status:   types.StatusQueued,
+		Replicas: previous.Replicas,
+		Port:     previous.Port,
+		Env:      previous.Env,
+	}
+	if err := s.store.CreateJob(ctx, job); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create build"})
+	}
+
+	if s.dispatcher != nil {
+		if err := s.dispatcher.Dispatch(ctx, job.ID, job.AppName, job.RepoURL, job.Ref, job.Port); err != nil {
+			_ = s.store.AppendLog(ctx, job.ID, "stderr", "failed to dispatch rebuild: "+err.Error())
+			_ = s.store.UpdateRunnerStatus(ctx, job.ID, types.RunnerStatusRequest{
+				Status: types.StatusFailed,
+				Error:  "failed to dispatch build to executor: " + err.Error(),
+			})
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to dispatch build"})
+		}
+	}
+
+	s.events.Emit(ocilog.Event{Type: "build.status", JobID: job.ID, App: job.AppName, Status: job.Status})
+
+	return c.Status(fiber.StatusCreated).JSON(types.CreateBuildResponse{
+		AppName: job.AppName,
+		BuildID: job.ID,
+		Status:  job.Status,
+	})
 }
 
 func (s *Server) commitGitOps(jobID string, req types.RunnerStatusRequest) (string, string, string, error) {
