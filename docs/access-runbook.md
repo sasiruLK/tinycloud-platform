@@ -27,8 +27,9 @@ creation, so the current key works without ever touching `authorized_keys`.
 | Client CIDR allow list | `0.0.0.0/0` |
 | Plugin verified `RUNNING` on | `k3s-control` |
 
-Managed-SSH requires the Bastion plugin on the target instance. It is confirmed running on
-`k3s-control`; plugin state on the other three is **unverified** — if a session there fails to create,
+Managed-SSH requires the Bastion plugin on the target instance. Confirmed `ENABLED` and used
+successfully on both `k3s-control` and `k3s-worker-1` (`2026-08-16`); plugin state on the two AMD
+micros is **unverified** — if a session there fails to create,
 check the plugin first. The `0.0.0.0/0` client allow list is loose; tightening it is open work.
 
 ## Admin Defaults
@@ -68,6 +69,26 @@ export BASTION_ID='ocid1.bastion.oc1.iad.amaaaaaaul44qqiax2v6kabqowojtterbpevcp2
 
 Use the command OCI prints, not a hand-built one. Sessions expire — when SSH starts failing again,
 check whether the session is still `ACTIVE` before debugging anything else.
+
+### The injected key is removed when the session ends
+
+Worth knowing, because the symptom is confusing: access works, then stops mid-task with
+`Permission denied (publickey)` on a host that was answering minutes earlier.
+
+Creating a managed-SSH session makes the Oracle Cloud Agent rewrite the target's
+`~/.ssh/authorized_keys`, saving the original as `authorized_keys_backup` (owned by `snap_daemon`).
+When the session ends it restores that backup, taking the injected key with it. Nothing is wrong with
+the host and nothing needs repairing — create a new session.
+
+The only key that persists across sessions is the instance's original OCI key,
+`ssh-key-2026-05-16` (RSA, `SHA256:rSevtbQQ4iimzV+CejkUtrLgOBnhxhdtZ0BGBwKiUHg`). If you still have
+that private key, it works without a session; `~/.ssh/id_ed25519` never will on its own.
+
+### Port-forwarding sessions do not inject anything
+
+`create-port-forwarding` only opens a TCP tunnel to the target port. It does not touch
+`authorized_keys`, so SSH through one still fails unless the key is already trusted. Use
+`create-managed-ssh` for a shell; port-forwarding is for reaching a non-SSH port.
 
 ## Permanent Fix (Optional)
 
