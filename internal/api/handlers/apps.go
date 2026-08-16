@@ -133,6 +133,21 @@ func (h *Handler) CreateApp(c *fiber.Ctx) error {
 	return response.JSONStatus(c, fiber.StatusCreated, build)
 }
 
+// ListBuilds exposes deploy history. Without it a build is only reachable by
+// UUID, which meant the record of every deploy existed but could not be found.
+func (h *Handler) ListBuilds(c *fiber.Ctx) error {
+	if h.Build == nil {
+		return response.JSONError(c, fiber.StatusServiceUnavailable, "build_coordinator_unavailable",
+			"Build coordinator is not configured")
+	}
+	builds, err := h.Build.ListBuilds(context.Background(), c.QueryInt("limit", 50))
+	if err != nil {
+		return response.JSONError(c, fiber.StatusBadGateway, "coordinator_unreachable",
+			"Failed to list builds from the coordinator")
+	}
+	return response.JSON(c, fiber.Map{"builds": builds})
+}
+
 func (h *Handler) GetBuild(c *fiber.Ctx) error {
 	if h.Build == nil {
 		return response.JSONError(c, fiber.StatusServiceUnavailable, "build_coordinator_unavailable",

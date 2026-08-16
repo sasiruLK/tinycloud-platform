@@ -307,3 +307,32 @@ func formatTime(t time.Time) string {
 func parseTime(v string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, v)
 }
+
+// ListJobs returns build history, newest first.
+//
+// Until this existed a build was only reachable if you already knew its UUID,
+// so every deploy the platform had ever done was invisible in practice. limit
+// is clamped rather than trusted: this is read straight from a UI.
+func (s *Store) ListJobs(ctx context.Context, limit int) ([]*types.BuildJob, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, app_name, repo_url, ref, commit_sha, framework, image, tag,
+		status, attempts, replicas, port, env_json, gitops_commit_sha, gitops_path, deploy_status,
+		argo_sync_status, argo_health, app_url, verification_error, error, created_at, updated_at, started_at, finished_at
+		FROM build_jobs ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	jobs := make([]*types.BuildJob, 0, limit)
+	for rows.Next() {
+		job, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}

@@ -7,6 +7,7 @@ import { AppPage } from "@/pages/AppPage";
 import { CreateAppPage } from "@/pages/CreateAppPage";
 import { RollbacksPage } from "@/pages/RollbacksPage";
 import { BuildPage } from "@/pages/BuildPage";
+import { BuildsPage } from "@/pages/BuildsPage";
 import { InfraPage } from "@/pages/InfraPage";
 import { SystemPage } from "@/pages/SystemPage";
 
@@ -106,7 +107,7 @@ export default function App() {
           <Route path="/apps" element={<AppsPage />} />
           <Route path="/apps/new" element={<CreateAppPage />} />
           <Route path="/apps/:name" element={<AppPage />} />
-          <Route path="/builds" element={<BuildPage />} />
+          <Route path="/builds" element={<BuildsPage />} />
           <Route path="/builds/:id" element={<BuildPage />} />
           <Route path="/build/:id" element={<BuildPage />} />
           <Route path="/infra" element={<InfraPage />} />

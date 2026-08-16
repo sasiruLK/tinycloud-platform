@@ -43,6 +43,17 @@ func (c *Client) GetBuild(ctx context.Context, id string) (*types.BuildJob, erro
 	return &out, nil
 }
 
+// ListBuilds returns recent build history, newest first.
+func (c *Client) ListBuilds(ctx context.Context, limit int) ([]*types.BuildJob, error) {
+	var out struct {
+		Builds []*types.BuildJob `json:"builds"`
+	}
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/builds?limit=%d", limit), nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Builds, nil
+}
+
 func (c *Client) GetLogs(ctx context.Context, id string, after int64) (*types.BuildLogsResponse, error) {
 	var out types.BuildLogsResponse
 	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/builds/%s/logs?after=%d", id, after), nil, &out); err != nil {
