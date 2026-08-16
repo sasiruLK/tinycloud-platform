@@ -635,3 +635,67 @@ func toModelNodes(in []k8s.ResourceNode) []models.ResourceNode {
 	}
 	return out
 }
+
+// GetResourceManifest returns the live object behind one node of the resource
+// graph. Clicking a node should show what is actually running, not what git
+// says ought to be.
+func (h *Handler) GetResourceManifest(c *fiber.Ctx) error {
+	ctx := context.Background()
+	app, err := h.K8s.GetApplication(ctx, c.Params("name"))
+	if err != nil {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found", "Application not found")
+	}
+
+	// Resolved from the Application rather than taken from the URL, so a caller
+	// cannot read arbitrary objects in namespaces this app does not own.
+	ns := getAppDestinationNamespace(app)
+	if ns == "" {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found", "Application has no destination namespace")
+	}
+
+	manifest, err := h.K8s.GetResourceManifest(ctx, ns, c.Params("kind"), c.Params("resource"))
+	if err != nil {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found", err.Error())
+	}
+	return response.JSON(c, manifest)
+}
+
+// GetPodLogsByName returns logs for one specific pod, rather than whichever pod
+// happened to be first in the list.
+func (h *Handler) GetPodLogsByName(c *fiber.Ctx) error {
+	ctx := context.Background()
+	app, err := h.K8s.GetApplication(ctx, c.Params("name"))
+	if err != nil {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found", "Application not found")
+	}
+	ns := getAppDestinationNamespace(app)
+	if ns == "" {
+		return response.JSONError(c, fiber.StatusNotFound, "not_found", "Application has no destination namespace")
+	}
+
+	pod := c.Params("pod")
+	container := c.Query("container")
+	if container == "" {
+		names, err := h.K8s.GetPodContainers(ctx, ns, pod)
+		if err != nil {
+			return response.JSONError(c, fiber.StatusNotFound, "not_found", "Pod not found")
+		}
+		if len(names) > 0 {
+			container = names[0]
+		}
+	}
+
+	tail := int64(c.QueryInt("tail", 200))
+	logs, err := h.K8s.GetPodLogs(ctx, ns, pod, container, tail)
+	if err != nil {
+		return response.JSONError(c, fiber.StatusInternalServerError, "internal_error", err.Error())
+	}
+
+	containers, _ := h.K8s.GetPodContainers(ctx, ns, pod)
+	return response.JSON(c, fiber.Map{
+		"pod":        pod,
+		"container":  container,
+		"containers": containers,
+		"lines":      strings.Split(strings.TrimRight(logs, "\n"), "\n"),
+	})
+}
