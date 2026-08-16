@@ -1,6 +1,6 @@
 # TinyCloud Infrastructure Runbook
 
-Current state of the lab in `us-ashburn-1`, verified `2026-08-15` via authenticated OCI CLI and
+Current state of the lab in `us-ashburn-1`, verified `2026-08-16` via authenticated OCI CLI and
 `kubectl` through the OCI Bastion. This is the single description of what exists — there is no
 pending rebuild; the cluster is healthy and serving. Everything lives in the **root compartment**.
 
@@ -35,23 +35,25 @@ re-verified since.
 | Nodes | `k3s-control` (control-plane), `k3s-worker-1` (worker) — both `Ready`, ~42 days uptime |
 | OS | Ubuntu 22.04.5 |
 | Runtime | containerd `2.3.2-k3s2` |
-| Ingress | Traefik `3.7.4`, 5 IngressRoutes serving |
+| Ingress | Traefik `3.7.4`, 6 IngressRoutes serving |
 | TLS | cert-manager `v1.15.5`; certificate `tinycloud-platform-tls` is `Ready` |
 
 ### GitOps
 
 | Component | Version | Note |
 |-----------|---------|------|
-| Argo CD | `v2.13.3` in `argocd` | **installed out of band** |
-| argocd-image-updater | `v1.2.2` in `argocd`, running ~34 days | **installed out of band** |
+| Argo CD | `v3.3.14` in `argocd` | Upgraded from `v2.13.3` on 2026-08-16 |
+| argocd-image-updater | `v1.2.2` in `argocd` | Adopted into `argocd/image-updater.yaml` |
 
-Neither is installed by anything in `tinycloud-platform` or `gitops-lab`. If the cluster is rebuilt,
-both must be reinstalled by hand or added to a repo first.
+Both are now declared in `gitops-lab/argocd/` and reconciled by the `root` app-of-apps, so a rebuild
+restores them. That was not true before 2026-08-15, when each existed only as a live object.
 
-ApplicationSet `user-apps` exists. Five Argo Applications, all `Synced/Healthy`:
-`blog`, `cert-manager`, `tinycloud-api`, `tinycloud-platform`, `tinycloud-ui`.
+ApplicationSet `user-apps` exists. Nine Argo Applications, all `Synced/Healthy`:
+`argocd-image-updater`, `blog`, `cert-manager`, `counter-demo`, `external-secrets`, `root`,
+`tinycloud-api`, `tinycloud-platform`, `tinycloud-ui`.
 
-Workloads in `tinycloud`: `blog`, `nginx-proxy`, `oauth2-proxy`, `tinycloud-api`, `tinycloud-ui`.
+Workloads in `tinycloud`: `blog`, `build-coordinator`, `nginx-proxy`, `oauth2-proxy`,
+`tinycloud-api`, `tinycloud-ui`.
 
 ## Registry — GHCR only
 
@@ -67,6 +69,29 @@ Every workload runs from GHCR (`ghcr.io/sasirulk/...`).
 
 `ghcr-creds` is present in `argocd` and `tinycloud`. The manifest generator emits it throughout —
 deployment pull secret, PreSync reader ClusterRole/Binding, secret sync Job, ImageUpdater pull secret.
+
+### Every secret the cluster needs
+
+| Secret | Namespace | Contents | Where it comes from |
+|--------|-----------|----------|---------------------|
+| `ghcr-creds` | `argocd`, `tinycloud`, each app ns | dockerconfigjson | Created at bootstrap from a GHCR PAT |
+| `github-pat` | `tinycloud` | `token`, `username` | Created by hand; read by `tinycloud-api` and the build coordinator |
+| `build-coordinator-token` | `tinycloud` | `token` | Created by hand; the shared bearer token between API and coordinator |
+| `oauth2-github` | `tinycloud` | `client-id`, `client-secret`, `cookie-secret` | Created by hand; the GitHub OAuth app backing console login |
+| `cloudflare-api-token` | `cert-manager` | `api-token` | **OCI Vault**, via the `ExternalSecret` in `argocd/oci-vault-store.yaml` |
+
+Only the last one is recoverable. The other four exist as live objects in the cluster and nowhere
+else — not in this repository, not in OCI Vault, not in a backup. A cluster rebuild restores every
+manifest and no credential, and the failure is not obvious: `oauth2-github` in particular is what
+console login depends on, so losing it locks the console out entirely.
+
+The fix is to move them into OCI Vault alongside `cloudflare-api-token` and read them back through
+External Secrets, which is already installed and working. Until that is done, treat the four as
+manual state and keep a copy somewhere off this cluster.
+
+Nothing was lost when `deploy/` was deleted on 2026-08-16 — its `secret-template.yaml` and
+`build-coordinator-secret-template.yaml` were placeholders with fake values, and this table records
+what they documented.
 
 ### OCIR is impossible on this tenancy
 
@@ -85,11 +110,13 @@ purged from the Go code and the manifests; do not reintroduce it.
 | Service | State |
 |---------|-------|
 | Bastion `tinycloud-lab-bastion` | `ACTIVE`. See [access-runbook.md](./access-runbook.md) |
-| Notifications topic `tinycloud-alerts` | `ACTIVE`, but **zero alarms are configured**, so nothing ever publishes to it |
-| Vault | **does not exist** — no OCI Vault in this tenancy |
+| Notifications topic `tinycloud-alerts` | `ACTIVE`, with 6 alarms publishing to it |
+| Vault `tinycloud-secrets` | `ACTIVE`. Holds `cloudflare-api-token`, read by External Secrets |
 | Object Storage | namespace `idzghas4xwzv` |
 
-Alarms are unbuilt work: the topic is a destination with no source.
+Six alarms are enabled and wired to the topic: `site-unreachable`, `ingress-backend-unhealthy`,
+`instance-unhealthy`, `node-memory-high` (all CRITICAL), `tls-expiring-soon` and `node-cpu-high`
+(WARNING).
 
 ## Design Rules
 
@@ -101,26 +128,30 @@ Alarms are unbuilt work: the topic is a destination with no source.
 - No build jobs on the AMD micros
 - Public network exposure is limited to ingress plus the explicitly required admin paths
 
-## Open Question — Where Do User-App Builds Run?
+## Where User-App Builds Run — Decided
 
-**Unresolved. Do not treat any option below as decided.**
+**GitHub Actions.** Settled 2026-08-15; the section that stood here recorded it as unresolved.
 
-`cmd/build-coordinator` and `cmd/build-runner` need a Docker host. The design rules above forbid a
-dedicated build VM and forbid builds on the AMD micros, and both ARM VMs are consumed by k3s — so
-there is nowhere for the build plane to run.
+`cmd/build-coordinator` needs no Docker host of its own. It keeps the queue, the job lifecycle and
+the logs, and dispatches the actual build to a workflow via `repository_dispatch`. The runner
+reports back on `/v1/runner/jobs/:id/logs` and `/status`, so build output still lands in the
+platform's own database and console — the coordinator was not hollowed out, only its executor moved.
 
-The platform's own images are unaffected: `.github/workflows/build-api.yaml` and
-`build-ui.yaml` build the api and ui images on GitHub Actions and push to GHCR. That works.
+Why this and not the alternatives the old section listed:
 
-Moving **user-app** builds to GitHub Actions is a **candidate, not a decision**:
+- A dedicated ARM build VM is impossible: the Ampere allocation is `2 OCPU / 12 GB` and both ARM
+  nodes are fully consumed by k3s.
+- Builds on the AMD micros are forbidden by the design rules, and 1 GB of RAM would not survive a
+  container build regardless.
+- In-cluster BuildKit/Kaniko on `k3s-worker-1` would contend with the workloads it is building for,
+  on the one node that also holds the coordinator's database.
 
-- For: no compute to maintain, nothing idle against the ARM cap, already proven for api/ui.
-- Against: it hollows out the coordinator/runner that are the point of the platform, moves builds off
-  infrastructure we control, and needs per-user-repo workflow and token plumbing the coordinator
-  design existed to avoid.
+`cmd/build-runner` remains in the tree but is not deployed anywhere.
 
-Not yet costed: ephemeral in-cluster BuildKit/Kaniko pods on `k3s-worker-1` with a concurrency cap of
-1, or reshaping the ARM allocation to free a build host.
+The coordinator itself runs as a pod in `tinycloud` as of 2026-08-16, deployed by Argo CD from
+`gitops-lab/apps/tinycloud-platform/build-coordinator.yaml`. It previously ran as a systemd unit on
+`k3s-worker-1`, updated by scp'ing a binary; its SQLite database now lives on a `local-path`
+PersistentVolumeClaim pinned to that node.
 
 ## Removed Tooling
 
@@ -133,10 +164,18 @@ Deleted on 2026-08-15 because OCIR cannot be used on this tenancy:
 `scripts/bootstrap-gitops.sh` was fixed in the same pass: its `APPLY_PLATFORM_APPS=1`
 path now requires `ghcr-creds` rather than `ocir-creds`.
 
-Still present but **do not run** — it provisions a build VM that no longer exists,
-and its fate depends on the unresolved build-plane question above:
+Deleted on 2026-08-16, when the build coordinator became a pod. They provisioned and
+updated a build VM by hand — cross-compiling a binary, scp'ing it to k3s-worker-1 and
+restarting a systemd unit — and `bootstrap-build-vm.sh` still configured OCIR:
 
 - `scripts/deploy/bootstrap-build-vm.sh`
+- `scripts/deploy/push-build-vm.sh`
+- `scripts/deploy/build-binaries.sh`
+- `deploy/` — an unreferenced copy of the API manifests pinned to `:latest`, still
+  containing the `tinycloud-api-logs` Role that was replaced by `tinycloud-api-workloads`
+
+The coordinator now deploys the same way as everything else: a push builds an image, Image
+Updater advances the tag in gitops-lab, Argo CD syncs it.
 
 ## Validation Checklist
 
