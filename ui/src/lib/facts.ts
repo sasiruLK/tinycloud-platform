@@ -153,6 +153,16 @@ export const GOTCHAS: Gotcha[] = [
       "Rules written as HostRegexp(`{name:...}`) silently match nothing on Traefik 3. Application subdomains stopped routing without any error.",
   },
   {
+    title: "Three namespaces, and they disagree",
+    detail:
+      "An Argo CD Application has a namespace of its own (always argocd), a declared destination namespace, and whatever its manifests actually pin. These agree rarely enough that all three have been wrong somewhere: the blog app declared one namespace while its manifests pinned another, the API's RBAC granted pod access in a namespace that had been deleted, and the resource graph searched for pods where the Application object lives rather than where its workloads run. When something reports nothing found, check which of the three it is using.",
+  },
+  {
+    title: "Removing an Application deletes its workloads",
+    detail:
+      "Argo CD's resources-finalizer cascades. Excluding a path from an ApplicationSet makes it delete the Application it generated, which then takes the live Deployment and Service with it — the blog went down this way. Create the replacement Application first, let it adopt the resources, and only then remove the old owner.",
+  },
+  {
     title: "Expiring tokens fail silently",
     detail:
       "The GHCR token expired and every image build failed for a month with no signal, because nobody watches workflow runs. The daily health check exists specifically to catch this class of failure.",
