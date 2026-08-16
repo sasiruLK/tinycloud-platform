@@ -35,6 +35,18 @@ func (c *Client) CreateBuild(ctx context.Context, req types.CreateBuildRequest) 
 	return &out, nil
 }
 
+// RebuildApp builds an app that already exists, reusing the repo, ref, port and
+// replica count from its previous build. Deliberately takes no parameters
+// beyond the name: a rebuild that could change those would be an edit wearing
+// a retry's clothes.
+func (c *Client) RebuildApp(ctx context.Context, appName string) (*types.CreateBuildResponse, error) {
+	var out types.CreateBuildResponse
+	if err := c.do(ctx, http.MethodPost, "/v1/apps/"+appName+"/rebuild", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) GetBuild(ctx context.Context, id string) (*types.BuildJob, error) {
 	var out types.BuildJob
 	if err := c.do(ctx, http.MethodGet, "/v1/builds/"+id, nil, &out); err != nil {

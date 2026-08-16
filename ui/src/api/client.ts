@@ -66,6 +66,13 @@ export const apiClient = {
   },
   syncApp: (name: string) =>
     api<{ status: string }>(`/v1/apps/${name}/sync`, { method: "POST" }),
+  // Rebuilds from the app's own last build — repo, ref and port are not sent,
+  // so this can never quietly become an edit.
+  rebuildApp: (name: string) =>
+    api<{ appName: string; buildId: string; status: string }>(
+      `/v1/apps/${name}/rebuild`,
+      { method: "POST" },
+    ),
   rollbackApp: (name: string, body: RollbackRequest) =>
     api<RollbackResponse>(`/v1/apps/${name}/rollback`, {
       method: "POST",
