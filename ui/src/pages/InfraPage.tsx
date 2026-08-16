@@ -46,7 +46,7 @@ export function InfraPage() {
       {/* --- nodes ------------------------------------------------------- */}
       <Section icon={Cpu} title="Compute">
         <div className="grid gap-3 md:grid-cols-2">
-          {infra.nodes.map((n) => (
+          {byImportance(infra.nodes).map((n) => (
             <NodeCard key={n.name} node={n} />
           ))}
         </div>
@@ -272,6 +272,20 @@ function Section({
       </h2>
       {children}
     </section>
+  );
+}
+
+/**
+ * The API returns nodes alphabetically, which buries the two machines that
+ * actually matter beneath the idle utility boxes. Order by what you would want
+ * to look at first when something is wrong.
+ */
+const ROLE_ORDER: Record<string, number> = { "control-plane": 0, worker: 1, utility: 2 };
+
+function byImportance(nodes: InfraNode[]): InfraNode[] {
+  return [...nodes].sort(
+    (a, b) =>
+      (ROLE_ORDER[a.role] ?? 9) - (ROLE_ORDER[b.role] ?? 9) || a.name.localeCompare(b.name),
   );
 }
 
