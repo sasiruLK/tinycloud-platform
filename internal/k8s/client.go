@@ -134,3 +134,117 @@ func (c *Client) GetDeploymentPods(ctx context.Context, namespace, deploymentNam
 		LabelSelector: selector,
 	})
 }
+
+// ResourceNode is one node of an application's resource tree.
+//
+// Argo CD's Application only records a flat list in .status.resources, with no
+// parent/child information, so a Deployment and its Pods appear as unrelated
+// entries. This reconstructs the hierarchy from Kubernetes ownerReferences,
+// which is the same relationship Argo's own UI draws.
+type ResourceNode struct {
+	Kind      string         `json:"kind"`
+	Name      string         `json:"name"`
+	Namespace string         `json:"namespace,omitempty"`
+	Status    string         `json:"status,omitempty"`
+	Health    string         `json:"health,omitempty"`
+	Detail    string         `json:"detail,omitempty"`
+	Children  []ResourceNode `json:"children,omitempty"`
+}
+
+// BuildResourceTree expands workloads in a namespace into their ReplicaSets and
+// Pods. Anything with no children — Services, ConfigMaps — comes back as a leaf.
+//
+// Errors listing children are deliberately swallowed: a partial tree is far more
+// useful than an error page, and the top-level resources are already known good
+// from the Application status.
+func (c *Client) BuildResourceTree(ctx context.Context, namespace string, tops []ResourceNode) []ResourceNode {
+	if namespace == "" {
+		return tops
+	}
+
+	rsList, err := c.K8s.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return tops
+	}
+	podList, err := c.K8s.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return tops
+	}
+
+	// Pods indexed by the UID of whatever owns them.
+	podsByOwner := map[string][]ResourceNode{}
+	for _, p := range podList.Items {
+		node := ResourceNode{
+			Kind:      "Pod",
+			Name:      p.Name,
+			Namespace: p.Namespace,
+			Status:    string(p.Status.Phase),
+			Health:    podHealth(&p),
+			Detail:    podDetail(&p),
+		}
+		for _, o := range p.OwnerReferences {
+			podsByOwner[string(o.UID)] = append(podsByOwner[string(o.UID)], node)
+		}
+	}
+
+	// ReplicaSets indexed by owning workload name, carrying their pods. Scaled-down
+	// historical ReplicaSets are skipped — Argo shows them, but for this platform
+	// they are noise that hides the live one.
+	rsByOwner := map[string][]ResourceNode{}
+	for _, rs := range rsList.Items {
+		kids := podsByOwner[string(rs.UID)]
+		if len(kids) == 0 && rs.Status.Replicas == 0 {
+			continue
+		}
+		node := ResourceNode{
+			Kind:      "ReplicaSet",
+			Name:      rs.Name,
+			Namespace: rs.Namespace,
+			Status:    fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, rs.Status.Replicas),
+			Children:  kids,
+		}
+		for _, o := range rs.OwnerReferences {
+			rsByOwner[o.Name] = append(rsByOwner[o.Name], node)
+		}
+	}
+
+	out := make([]ResourceNode, 0, len(tops))
+	for _, t := range tops {
+		if t.Kind == "Deployment" {
+			t.Children = rsByOwner[t.Name]
+		}
+		if t.Namespace == "" {
+			t.Namespace = namespace
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func podHealth(p *corev1.Pod) string {
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason
+		}
+		if !cs.Ready && p.Status.Phase == corev1.PodRunning {
+			return "NotReady"
+		}
+	}
+	if p.Status.Phase == corev1.PodRunning {
+		return "Healthy"
+	}
+	return string(p.Status.Phase)
+}
+
+// podDetail surfaces the thing you actually want when a pod is unhappy: how many
+// times it has restarted, and which node it is on.
+func podDetail(p *corev1.Pod) string {
+	var restarts int32
+	for _, cs := range p.Status.ContainerStatuses {
+		restarts += cs.RestartCount
+	}
+	if restarts > 0 {
+		return fmt.Sprintf("%d restarts · %s", restarts, p.Spec.NodeName)
+	}
+	return p.Spec.NodeName
+}

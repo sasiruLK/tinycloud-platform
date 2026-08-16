@@ -4,6 +4,7 @@ import { useApp } from "@/hooks/useApp";
 import { apiClient } from "@/api/client";
 import { ApiError } from "@/api/error";
 import { LogViewer } from "@/components/LogViewer";
+import { ResourceTree } from "@/components/ResourceTree";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
@@ -343,26 +344,28 @@ export function AppPage() {
 
       <LogViewer appName={app.name} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Resources</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {app.resources?.map((resource) => (
-              <div
-                key={`${resource.kind}-${resource.name}`}
-                className="flex items-center justify-between py-2 border-b last:border-0"
-              >
-                <span className="text-sm">
-                  {resource.kind}/{resource.name}
-                </span>
-                <StatusBadge status={resource.status} />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <section className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)]">
+        <header className="flex items-center justify-between border-b border-[var(--color-line)] px-3 py-2">
+          <h2 className="font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            Resources
+          </h2>
+          <span className="font-mono text-[10px] text-[var(--color-faint)]">
+            nested by ownerReference
+          </span>
+        </header>
+        {/* Falls back to the flat list when the API predates the tree. */}
+        <ResourceTree
+          nodes={
+            app.tree?.length
+              ? app.tree
+              : (app.resources ?? []).map((r) => ({
+                  kind: r.kind,
+                  name: r.name,
+                  status: r.status,
+                }))
+          }
+        />
+      </section>
     </div>
   );
 }

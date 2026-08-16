@@ -40,6 +40,7 @@ export interface App {
 
 export interface AppDetail extends App {
   resources: Resource[];
+  tree?: ResourceNode[];
 }
 
 export interface Resource {
@@ -244,4 +245,18 @@ export interface InfraResponse {
   backups: InfraBackups;
   uptime: InfraUptime[];
   capacity: InfraCapacity;
+}
+
+/**
+ * One node of an application's resource tree, nested by ownerReference.
+ * Argo CD's status carries no parent information, so the API reconstructs this.
+ */
+export interface ResourceNode {
+  kind: string;
+  name: string;
+  namespace?: string;
+  status?: string;
+  health?: string;
+  detail?: string;
+  children?: ResourceNode[];
 }
