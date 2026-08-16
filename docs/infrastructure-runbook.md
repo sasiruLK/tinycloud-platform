@@ -72,22 +72,27 @@ deployment pull secret, PreSync reader ClusterRole/Binding, secret sync Job, Ima
 
 ### Every secret the cluster needs
 
-| Secret | Namespace | Contents | Where it comes from |
-|--------|-----------|----------|---------------------|
-| `ghcr-creds` | `argocd`, `tinycloud`, each app ns | dockerconfigjson | Created at bootstrap from a GHCR PAT |
-| `github-pat` | `tinycloud` | `token`, `username` | Created by hand; read by `tinycloud-api` and the build coordinator |
-| `build-coordinator-token` | `tinycloud` | `token` | Created by hand; the shared bearer token between API and coordinator |
-| `oauth2-github` | `tinycloud` | `client-id`, `client-secret`, `cookie-secret` | Created by hand; the GitHub OAuth app backing console login |
-| `cloudflare-api-token` | `cert-manager` | `api-token` | **OCI Vault**, via the `ExternalSecret` in `argocd/oci-vault-store.yaml` |
+| Secret | Namespace | Contents | In Vault | Read from Vault |
+|--------|-----------|----------|----------|-----------------|
+| `cloudflare-api-token` | `cert-manager` | `api-token` | yes | yes — `argocd/oci-vault-store.yaml` |
+| `oauth2-github` | `tinycloud` | `client-id`, `client-secret`, `cookie-secret` | yes | not yet |
+| `github-pat` | `tinycloud` | `token`, `username` | yes | not yet |
+| `build-coordinator-token` | `tinycloud` | `token` | yes | not yet |
+| `ghcr-creds` | `argocd`, `tinycloud`, each app ns | `.dockerconfigjson` | yes | not yet |
 
-Only the last one is recoverable. The other four exist as live objects in the cluster and nowhere
-else — not in this repository, not in OCI Vault, not in a backup. A cluster rebuild restores every
-manifest and no credential, and the failure is not obvious: `oauth2-github` in particular is what
-console login depends on, so losing it locks the console out entirely.
+Until 2026-08-16 only the first row existed anywhere but the live cluster. The other four were
+created by hand and backed up nowhere — a rebuild would have restored every manifest and no
+credential, and the failure is not obvious: `oauth2-github` is what console login depends on, so
+losing it locks the console out entirely with no way back in.
 
-The fix is to move them into OCI Vault alongside `cloudflare-api-token` and read them back through
-External Secrets, which is already installed and working. Until that is done, treat the four as
-manual state and keep a copy somewhere off this cluster.
+All five are now in the `tinycloud-secrets` vault, each stored as a base64 JSON map of
+`{key: value}` — the shape External Secrets' `dataFrom.extract` expects, so wiring them back needs
+no reshaping. The `oauth2-github` copy was verified by round-trip against the live Secret.
+
+**Backed up is not the same as reconciled.** Four of the five are still applied by hand; the Vault
+copy is a recovery path, not the source of truth, and it will drift silently the next time one is
+rotated in the cluster. Finishing the job means an `ExternalSecret` per row, at which point the
+cluster copy becomes derived state. Rotate in Vault first until then.
 
 Nothing was lost when `deploy/` was deleted on 2026-08-16 — its `secret-template.yaml` and
 `build-coordinator-secret-template.yaml` were placeholders with fake values, and this table records
