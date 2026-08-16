@@ -43,5 +43,7 @@ tags; a BuildKit registry cache avoided the Object Storage 50k requests/month AP
 
 `scripts/deploy/setup-ocir.sh`, `docs/deploy/ocir-setup.md` and
 `docs/deploy/github-actions-ocir.yml` were deleted on 2026-08-15.
-`scripts/deploy/bootstrap-build-vm.sh` survives pending the build-plane decision —
-do not run it, the VM it targets no longer exists.
+`scripts/deploy/bootstrap-build-vm.sh`, `push-build-vm.sh` and `build-binaries.sh` were
+deleted on 2026-08-16. The build-plane question they were waiting on is settled: builds run
+in GitHub Actions, and the coordinator that queues them runs as a pod in `tinycloud`, deployed
+by Argo CD from `gitops-lab/apps/tinycloud-platform/build-coordinator.yaml`.
