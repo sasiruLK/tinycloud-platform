@@ -76,6 +76,32 @@ func (h *Handler) ListApps(c *fiber.Ctx) error {
 }
 
 // CreateApp enqueues a source build. The coordinator commits manifests after a successful image push.
+// RebuildApp rebuilds an existing app from its own last build.
+//
+// Until this existed the platform could build an app exactly once: creation was
+// the only path that produced an image, so a new commit to an app repo could
+// never reach the cluster.
+func (h *Handler) RebuildApp(c *fiber.Ctx) error {
+	if h.Build == nil {
+		return response.JSONError(c, fiber.StatusServiceUnavailable, "build_coordinator_unavailable",
+			"Build coordinator is not configured")
+	}
+
+	appName := strings.TrimSpace(c.Params("name"))
+	if appName == "" {
+		return response.JSONError(c, fiber.StatusBadRequest, "bad_request", "App name is required")
+	}
+
+	out, err := h.Build.RebuildApp(context.Background(), appName)
+	if err != nil {
+		// The coordinator owns the real reasons this can fail -- no previous
+		// build, one already running, executor unreachable -- so its message is
+		// more useful than anything invented here.
+		return response.JSONError(c, fiber.StatusBadGateway, "rebuild_failed", err.Error())
+	}
+	return response.JSON(c, out)
+}
+
 func (h *Handler) CreateApp(c *fiber.Ctx) error {
 	if h.Build == nil {
 		return response.JSONError(c, fiber.StatusServiceUnavailable, "build_coordinator_unavailable",

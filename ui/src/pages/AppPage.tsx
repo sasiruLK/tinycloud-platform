@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { getPlatformAppUrl } from "@/lib/tinycloud";
-import { RefreshCw, GitBranch, FolderOpen, RotateCcw, Loader2, ExternalLink, PauseCircle } from "lucide-react";
+import { RefreshCw, GitBranch, FolderOpen, RotateCcw, Loader2, ExternalLink, PauseCircle, Hammer } from "lucide-react";
 
 export function AppPage() {
   const [selectedNode, setSelectedNode] = useState<ResourceNode | null>(null);
@@ -54,6 +54,22 @@ export function AppPage() {
       } else {
         setActionError(err instanceof Error ? err.message : "Sync failed");
       }
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Sync reconciles what git already says. Rebuild produces a new image from a
+  // new commit — the only way a code change reaches the cluster.
+  const handleRebuild = async () => {
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const res = await apiClient.rebuildApp(name!);
+      setActionSuccess(`Build ${res.buildId.slice(0, 8)} queued — watch it on the Builds page`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Rebuild failed");
     } finally {
       setActionLoading(false);
     }
@@ -298,6 +314,12 @@ export function AppPage() {
         <Button onClick={handleSync} disabled={actionLoading}>
           <RotateCcw className="h-4 w-4 mr-1" />
           {actionLoading ? "Processing..." : "Sync"}
+        </Button>
+
+        <Button onClick={handleRebuild} disabled={actionLoading} variant="outline"
+          title="Build the app again from the latest commit on its branch">
+          <Hammer className="h-4 w-4 mr-1" />
+          Rebuild
         </Button>
 
         <Dialog>
