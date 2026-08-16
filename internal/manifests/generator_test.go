@@ -114,15 +114,30 @@ func TestGenerateAppFiles(t *testing.T) {
 	assert.Contains(t, kustomize, "namespace: demo-app")
 	assert.Contains(t, kustomize, "newTag: b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5")
 
-	sync := string(files["apps/demo-app/pull-secret-sync.yaml"])
-	assert.Contains(t, sync, "sync-ghcr-creds")
-	assert.Contains(t, sync, "demo-app-ghcr-creds-reader")
-	assert.Contains(t, sync, "kind: ClusterRole")
-	assert.Contains(t, sync, "kind: ClusterRoleBinding")
-	assert.Contains(t, sync, "resourceNames: [\"ghcr-creds\"]")
-	assert.Contains(t, sync, "argocd.argoproj.io/hook: PreSync")
-	assert.Contains(t, sync, `sync-wave: "-3"`)
-	assert.Contains(t, sync, "sync-wave: \"-1\"")
+	// The pull secret comes from OCI Vault, not from a Job that copies it out of
+	// another namespace. The old mechanism needed seven objects and gave each app
+	// namespace an identity that could read Secrets elsewhere in the cluster.
+	pullSecret := string(files["apps/demo-app/pull-secret.yaml"])
+	assert.Contains(t, pullSecret, "kind: ExternalSecret")
+	assert.Contains(t, pullSecret, "namespace: demo-app")
+	assert.Contains(t, pullSecret, "name: oci-vault")
+	assert.Contains(t, pullSecret, "kind: ClusterSecretStore")
+	assert.Contains(t, pullSecret, "type: kubernetes.io/dockerconfigjson")
+	assert.Contains(t, pullSecret, "key: ghcr-creds")
+
+	// Orphan, so removing the app does not garbage-collect the pull secret out
+	// from under pods that still need it to restart.
+	assert.Contains(t, pullSecret, "creationPolicy: Orphan")
+
+	// The hook-and-Job mechanism must be gone entirely, not merely unreferenced.
+	_, hadSyncFile := files["apps/demo-app/pull-secret-sync.yaml"]
+	assert.False(t, hadSyncFile, "pull-secret-sync.yaml should no longer be generated")
+	assert.NotContains(t, pullSecret, "argocd.argoproj.io/hook")
+	assert.NotContains(t, pullSecret, "kind: ClusterRoleBinding")
+
+	kust := string(files["apps/demo-app/kustomization.yaml"])
+	assert.Contains(t, kust, "- pull-secret.yaml")
+	assert.NotContains(t, kust, "pull-secret-sync.yaml")
 
 	updater := string(files["argocd/imageupdater-demo-app.yaml"])
 	assert.Contains(t, updater, "name: demo-app")

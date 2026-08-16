@@ -153,7 +153,7 @@ func GenerateAppFiles(req CreateAppRequest) map[string][]byte {
 		fmt.Sprintf("%s/service.yaml", appPath):              []byte(replaceVars(serviceTemplate, vars)),
 		fmt.Sprintf("%s/resource-quota.yaml", appPath):       []byte(replaceVars(resourceQuotaTemplate, vars)),
 		fmt.Sprintf("%s/network-policies.yaml", appPath):     []byte(replaceVars(networkPoliciesTemplate, vars)),
-		fmt.Sprintf("%s/pull-secret-sync.yaml", appPath):     []byte(replaceVars(pullSecretSyncTemplate, vars)),
+		fmt.Sprintf("%s/pull-secret.yaml", appPath):          []byte(replaceVars(pullSecretTemplate, vars)),
 		fmt.Sprintf("%s/kustomization.yaml", appPath):        []byte(replaceVars(kustomizationTemplate, vars)),
 		fmt.Sprintf("argocd/imageupdater-%s.yaml", req.Name): []byte(replaceVars(imageUpdaterTemplate, vars)),
 	}
@@ -357,148 +357,45 @@ spec:
           port: 53
 `
 
-const pullSecretSyncTemplate = `apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
+// The image pull secret, read from OCI Vault into the app's namespace.
+//
+// This replaced a PreSync hook that ran a Job to copy ghcr-creds out of another
+// namespace. That needed seven objects per app -- a ServiceAccount, a Role, a
+// RoleBinding, a NetworkPolicy opening apiserver egress, the Job itself and its
+// hook annotations -- and gave every app namespace a credential-copying
+// identity that could read Secrets elsewhere in the cluster.
+//
+// One ExternalSecret does the same job with no Job, no RBAC and no apiserver
+// egress, and it re-reconciles on its own if the credential is rotated in Vault
+// instead of staying stale until the next sync.
+//
+// creationPolicy is Orphan so that removing this file, or the app's
+// Application, does not garbage-collect the pull secret out from under running
+// pods that still need it to restart.
+const pullSecretTemplate = `apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
 metadata:
-  name: allow-pull-secret-sync-apiserver
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-4"
+  name: ghcr-creds
+  namespace: {{APP_NAME}}
+  labels:
+    app.kubernetes.io/name: {{APP_NAME}}
+    app.kubernetes.io/managed-by: tinycloud
 spec:
-  # The namespace default-deny policy permits egress to DNS only, so the sync
-  # Job below cannot reach the Kubernetes API and every sync after the first
-  # fails. The first sync survives only because this namespace has no policies
-  # yet when the hook runs; from then on the app can never be updated.
-  podSelector:
-    matchLabels:
-      tinycloud.io/component: pull-secret-sync
-  policyTypes:
-    - Egress
-  egress:
-    # kube-proxy DNATs the kubernetes.default ClusterIP to the real API server
-    # endpoint before NetworkPolicy is evaluated, so a rule naming 10.43.0.1:443
-    # never matches and the Job fails with "connection refused". The node
-    # address and port the ClusterIP resolves to is what must be allowed; the
-    # ClusterIP rule is kept for CNIs that evaluate policy pre-DNAT.
-    - to:
-        - ipBlock:
-            cidr: 10.0.0.0/24
-      ports:
-        - protocol: TCP
-          port: 6443
-    - to:
-        - ipBlock:
-            cidr: 10.43.0.1/32
-      ports:
-        - protocol: TCP
-          port: 443
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: pull-secret-sync
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-3"
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: pull-secret-sync
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-3"
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "create", "update", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: pull-secret-sync
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-3"
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pull-secret-sync
-subjects:
-  - kind: ServiceAccount
-    name: pull-secret-sync
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{APP_NAME}}-ghcr-creds-reader
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-3"
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    resourceNames: ["ghcr-creds"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{APP_NAME}}-ghcr-creds-reader
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-3"
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{APP_NAME}}-ghcr-creds-reader
-subjects:
-  - kind: ServiceAccount
-    name: pull-secret-sync
-    namespace: {{APP_NAME}}
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: sync-ghcr-creds
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
-    argocd.argoproj.io/sync-wave: "-1"
-spec:
-  ttlSecondsAfterFinished: 300
-  template:
-    metadata:
-      labels:
-        # Selected by allow-pull-secret-sync-apiserver above.
-        tinycloud.io/component: pull-secret-sync
-    spec:
-      serviceAccountName: pull-secret-sync
-      restartPolicy: Never
-      containers:
-        - name: sync
-          image: bitnami/kubectl:latest
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
-          command:
-            - /bin/bash
-            - -ec
-            - |
-              kubectl get secret ghcr-creds -n argocd -o yaml | \
-                sed "s/namespace: argocd/namespace: {{APP_NAME}}/" | \
-                grep -vE '^\s*(resourceVersion|uid|creationTimestamp):' | \
-                kubectl apply -f -
+  refreshInterval: 1h
+  secretStoreRef:
+    name: oci-vault
+    kind: ClusterSecretStore
+  target:
+    name: ghcr-creds
+    creationPolicy: Orphan
+    deletionPolicy: Retain
+    template:
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: '{{ index . ".dockerconfigjson" }}'
+  dataFrom:
+    - extract:
+        key: ghcr-creds
 `
 
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
@@ -508,7 +405,7 @@ namespace: {{APP_NAME}}
 
 resources:
   - namespace.yaml
-  - pull-secret-sync.yaml
+  - pull-secret.yaml
   - deployment.yaml
   - service.yaml
   - resource-quota.yaml
