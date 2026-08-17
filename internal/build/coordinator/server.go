@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,19 +23,29 @@ type Server struct {
 	git        *git.GitOps
 	dispatcher *dispatch.Dispatcher
 	events     *ocilog.Emitter
+	// Shared with GitHub so a push can prove it came from the repo owner.
+	// Empty disables the webhook route rather than leaving it open.
+	webhookSecret string
 }
 
 // NewServer wires the coordinator. dispatcher may be nil, in which case builds
 // are accepted and left queued for a polling runner via /v1/runner/poll.
 // events may be nil, in which case nothing is shipped to OCI Logging.
-func NewServer(store *Store, token string, dispatcher *dispatch.Dispatcher, events *ocilog.Emitter) *Server {
-	return &Server{store: store, token: token, git: git.NewGitOps(), dispatcher: dispatcher, events: events}
+func NewServer(store *Store, token string, dispatcher *dispatch.Dispatcher, events *ocilog.Emitter, webhookSecret string) *Server {
+	return &Server{
+		store: store, token: token, git: git.NewGitOps(),
+		dispatcher: dispatcher, events: events, webhookSecret: webhookSecret,
+	}
 }
 
 func (s *Server) Register(app *fiber.App) {
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "healthy"})
 	})
+
+	// Outside the bearer-auth group on purpose. GitHub cannot present our token,
+	// so this route authenticates itself with an HMAC over the request body.
+	app.Post("/v1/webhooks/github", s.githubWebhook)
 
 	api := app.Group("/v1")
 	api.Use(s.auth)
@@ -257,6 +268,27 @@ func (s *Server) rebuildApp(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "build already in progress for app"})
 	}
 
+	job, err := s.startRebuild(ctx, previous)
+	if err != nil {
+		if errors.Is(err, errDispatchFailed) {
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to dispatch build"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create build"})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(types.CreateBuildResponse{
+		AppName: job.AppName,
+		BuildID: job.ID,
+		Status:  job.Status,
+	})
+}
+
+var errDispatchFailed = errors.New("dispatch failed")
+
+// startRebuild queues and dispatches a new build for an app, reusing the
+// previous build's parameters. Shared by the manual endpoint and the webhook so
+// a push and a button press cannot drift into behaving differently.
+func (s *Server) startRebuild(ctx context.Context, previous *types.BuildJob) (*types.BuildJob, error) {
 	job := &types.BuildJob{
 		ID:       uuid.NewString(),
 		AppName:  previous.AppName,
@@ -268,27 +300,24 @@ func (s *Server) rebuildApp(c *fiber.Ctx) error {
 		Env:      previous.Env,
 	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create build"})
+		return nil, err
 	}
 
 	if s.dispatcher != nil {
 		if err := s.dispatcher.Dispatch(ctx, job.ID, job.AppName, job.RepoURL, job.Ref, job.Port); err != nil {
-			_ = s.store.AppendLog(ctx, job.ID, "stderr", "failed to dispatch rebuild: "+err.Error())
+			// Recorded against the build rather than lost in a 500: the user sees
+			// why on the build page instead of a job that sits queued forever.
+			_ = s.store.AppendLog(ctx, job.ID, "stderr", "failed to dispatch build: "+err.Error())
 			_ = s.store.UpdateRunnerStatus(ctx, job.ID, types.RunnerStatusRequest{
 				Status: types.StatusFailed,
 				Error:  "failed to dispatch build to executor: " + err.Error(),
 			})
-			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to dispatch build"})
+			return nil, errDispatchFailed
 		}
 	}
 
 	s.events.Emit(ocilog.Event{Type: "build.status", JobID: job.ID, App: job.AppName, Status: job.Status})
-
-	return c.Status(fiber.StatusCreated).JSON(types.CreateBuildResponse{
-		AppName: job.AppName,
-		BuildID: job.ID,
-		Status:  job.Status,
-	})
+	return job, nil
 }
 
 func (s *Server) commitGitOps(jobID string, req types.RunnerStatusRequest) (string, string, string, error) {

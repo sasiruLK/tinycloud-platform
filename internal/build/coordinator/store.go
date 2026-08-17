@@ -489,3 +489,32 @@ func (s *Store) ListJobs(ctx context.Context, limit int) ([]*types.BuildJob, err
 	}
 	return jobs, rows.Err()
 }
+
+// AppRepo is the source an app is built from.
+type AppRepo struct {
+	AppName string
+	RepoURL string
+	Ref     string
+}
+
+// ListAppRepos returns one row per app, carrying the repo and ref from that
+// app's most recent build. Used to decide which apps a push should rebuild.
+func (s *Store) ListAppRepos(ctx context.Context) ([]AppRepo, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT app_name, repo_url, ref FROM build_jobs
+		WHERE rowid IN (SELECT MAX(rowid) FROM build_jobs GROUP BY app_name)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AppRepo
+	for rows.Next() {
+		var a AppRepo
+		if err := rows.Scan(&a.AppName, &a.RepoURL, &a.Ref); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
