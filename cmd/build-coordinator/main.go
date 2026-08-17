@@ -52,7 +52,14 @@ func main() {
 	defer emitter.Close()
 
 	app := fiber.New(fiber.Config{AppName: "TinyCloud Build Coordinator"})
-	coordinator.NewServer(store, os.Getenv("BUILD_COORDINATOR_TOKEN"), dispatcher, emitter).Register(app)
+	webhookSecret := os.Getenv("GITHUB_WEBHOOK_SECRET")
+	if webhookSecret == "" {
+		log.Print("github webhooks disabled: GITHUB_WEBHOOK_SECRET not set")
+	} else {
+		log.Print("github webhooks: a push to an app repo will rebuild it")
+	}
+
+	coordinator.NewServer(store, os.Getenv("BUILD_COORDINATOR_TOKEN"), dispatcher, emitter, webhookSecret).Register(app)
 
 	log.Printf("TinyCloud build coordinator starting on port %s", port)
 	if err := app.Listen(fmt.Sprintf(":%s", port)); err != nil {
