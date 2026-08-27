@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -334,10 +335,12 @@ func TestGetInfraSurvivesProviderDegradation(t *testing.T) {
 // A Provider going down must leave the last good snapshot on screen, flagged
 // stale, rather than blanking the dashboard.
 func TestGetInfraServesLastGoodSnapshotWhenProviderGoesDown(t *testing.T) {
-	up := true
+	var up atomic.Bool
+	up.Store(true)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v0/", func(w http.ResponseWriter, r *http.Request) {
-		if !up {
+		if !up.Load() {
 			// The Provider is being restarted: the connection is refused in a
 			// cluster, and answers 503 here, which reaches Core the same way.
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -366,7 +369,7 @@ func TestGetInfraServesLastGoodSnapshotWhenProviderGoesDown(t *testing.T) {
 	require.Len(t, fresh["nodes"].([]any), 1)
 	require.Equal(t, false, fresh["stale"])
 
-	up = false
+	up.Store(false)
 	time.Sleep(300 * time.Millisecond)
 
 	after := getInfra(t, cache)
