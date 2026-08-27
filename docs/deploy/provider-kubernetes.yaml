@@ -1,0 +1,231 @@
+# The Kubernetes Infra Provider: a worked example.
+#
+# It runs provider-server from the same image as core, as its own Deployment
+# with its own service account. It needs no cloud account of any kind — nodes,
+# the ingress Service and the metrics API are everything it reads.
+#
+# Two controls guard it. The bearer token is what the provider checks; the
+# NetworkPolicy is what stops anything but core reaching it at all.
+#
+# Adapt the namespace, the image tag and the ingress Service to your instance,
+# then commit it to your instance's GitOps repository. This file is an example,
+# not a manifest this project applies for you.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tinycloud-provider-kubernetes
+  namespace: tinycloud
+---
+# Everything the provider reads, and nothing else. A provider that can only
+# read nodes, one Service and the metrics API is a small thing to trust.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tinycloud-provider-kubernetes
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tinycloud-provider-kubernetes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tinycloud-provider-kubernetes
+subjects:
+  - kind: ServiceAccount
+    name: tinycloud-provider-kubernetes
+    namespace: tinycloud
+---
+# The ingress address is one Service in one namespace, so it is a Role there
+# rather than another cluster-wide grant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tinycloud-provider-kubernetes-ingress
+  namespace: ingress-nginx
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: ["ingress-nginx-controller"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tinycloud-provider-kubernetes-ingress
+  namespace: ingress-nginx
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tinycloud-provider-kubernetes-ingress
+subjects:
+  - kind: ServiceAccount
+    name: tinycloud-provider-kubernetes
+    namespace: tinycloud
+---
+# The token core authenticates with. Generate it with something like
+# `openssl rand -hex 32`, and in a real instance keep it in your secret store
+# rather than in git — this project reads its own from Vault through an
+# ExternalSecret. Both sides read it from a mounted file per request, so
+# replacing this Secret rotates the credential without redeploying either.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tinycloud-provider-kubernetes-token
+  namespace: tinycloud
+type: Opaque
+stringData:
+  token: replace-me
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tinycloud-provider-kubernetes
+  namespace: tinycloud
+  labels:
+    app.kubernetes.io/name: tinycloud-provider-kubernetes
+    app.kubernetes.io/component: provider
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tinycloud-provider-kubernetes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tinycloud-provider-kubernetes
+        app.kubernetes.io/component: provider
+    spec:
+      serviceAccountName: tinycloud-provider-kubernetes
+      containers:
+        - name: provider
+          image: ghcr.io/sasirulk/tinycloud-platform-api:latest
+          command: ["/provider-server"]
+          env:
+            - name: PROVIDER_KIND
+              value: infra
+            - name: PROVIDER_IMPLEMENTATION
+              value: kubernetes
+            - name: PROVIDER_TOKEN_FILE
+              value: /etc/tinycloud/provider/token
+            - name: INGRESS_SERVICE
+              value: ingress-nginx/ingress-nginx-controller
+            - name: PORT
+              value: "9090"
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: token
+              mountPath: /etc/tinycloud/provider
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: token
+          secret:
+            secretName: tinycloud-provider-kubernetes-token
+            items:
+              - key: token
+                path: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tinycloud-provider-kubernetes
+  namespace: tinycloud
+spec:
+  selector:
+    app.kubernetes.io/name: tinycloud-provider-kubernetes
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+---
+# Default deny, then core only. Authentication is not the only control: nothing
+# else in the cluster should be able to open a connection to a provider.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tinycloud-provider-kubernetes
+  namespace: tinycloud
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tinycloud-provider-kubernetes
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tinycloud-api
+      ports:
+        - protocol: TCP
+          port: 9090
+---
+# Core's side of the wiring: which providers it has, and the token to reach
+# this one with. The token is mounted rather than passed in an environment
+# variable so that rotating the Secret takes effect without redeploying core.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tinycloud-providers
+  namespace: tinycloud
+data:
+  providers.json: |
+    [
+      {
+        "kind": "infra",
+        "name": "kubernetes",
+        "baseUrl": "http://tinycloud-provider-kubernetes.tinycloud.svc.cluster.local:9090",
+        "tokenFile": "/etc/tinycloud/provider-tokens/kubernetes/token"
+      }
+    ]
+# Add to the core Deployment:
+#
+#   env:
+#     - name: TINYCLOUD_PROVIDERS_FILE
+#       value: /etc/tinycloud/providers/providers.json
+#   volumeMounts:
+#     - name: providers
+#       mountPath: /etc/tinycloud/providers
+#       readOnly: true
+#     - name: provider-token
+#       mountPath: /etc/tinycloud/provider-tokens/kubernetes
+#       readOnly: true
+#   volumes:
+#     - name: providers
+#       configMap:
+#         name: tinycloud-providers
+#     - name: provider-token
+#       secret:
+#         secretName: tinycloud-provider-kubernetes-token
+#         items:
+#           - key: token
+#             path: token
