@@ -5,16 +5,18 @@ import (
 	"github.com/sasiruLK/tinycloud-platform/internal/api/handlers"
 	"github.com/sasiruLK/tinycloud-platform/internal/api/middleware"
 	buildclient "github.com/sasiruLK/tinycloud-platform/internal/build/client"
+	"github.com/sasiruLK/tinycloud-platform/internal/infra"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
-	"github.com/sasiruLK/tinycloud-platform/internal/oci"
 )
 
 // SetupRoutes registers all API routes
-func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient.Client, infra *oci.Cache) {
-	h := handlers.New(k8sClient, buildClient, infra)
+func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient.Client, infraCache *infra.Cache) {
+	h := handlers.New(k8sClient, buildClient, infraCache)
 
-	// OpenAPI spec (unauthenticated)
+	// OpenAPI specs (unauthenticated): this API, and the contract its
+	// Providers implement.
 	app.Get("/openapi.json", OpenAPISpec)
+	app.Get("/provider-contract.yaml", ProviderContract)
 
 	v1 := app.Group("/v1")
 
@@ -49,6 +51,6 @@ func SetupRoutes(app *fiber.App, k8sClient *k8s.Client, buildClient *buildclient
 	// Rollbacks
 	v1.Get("/rollbacks", h.ListRollbacks)
 
-	// OCI infrastructure health (cached snapshot)
+	// Infrastructure health (cached snapshot, assembled from Providers)
 	v1.Get("/infra", h.GetInfra)
 }

@@ -5,7 +5,19 @@ import (
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
+	tinycloud "github.com/sasiruLK/tinycloud-platform"
 )
+
+// ProviderContract serves the published `/v0` Provider contract.
+//
+// It is the file at the repository root, served verbatim rather than
+// reassembled here: the contract is the single source of truth for the Provider
+// API documentation, so the document a Provider author generates a client from
+// and the document Core describes cannot drift apart.
+func ProviderContract(c *fiber.Ctx) error {
+	c.Set(fiber.HeaderContentType, "application/yaml; charset=utf-8")
+	return c.Send(tinycloud.ProviderContractV0)
+}
 
 // OpenAPISpec builds and serves the OpenAPI 3.0 spec for TinyCloud API
 func OpenAPISpec(c *fiber.Ctx) error {
@@ -329,11 +341,13 @@ func OpenAPISpec(c *fiber.Ctx) error {
 			"/infra": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Infrastructure health",
-					"description": "Returns a cached snapshot of the OCI substrate: compute nodes with CPU/memory, " +
-						"Monitoring alarms, load balancer backends, backup bucket, synthetic uptime and Always Free " +
-						"capacity. Refreshed in the background every 60 seconds; `stale` is true when the cache is " +
-						"older than five minutes. Fields are null where a value is genuinely unavailable, and " +
-						"`warnings` names the sources that failed.",
+					"description": "Returns a cached snapshot of the substrate, assembled from this instance's " +
+						"providers: nodes with CPU/memory, alarms, ingress backends, backup store, synthetic " +
+						"uptime and free-tier capacity. Refreshed in the background every 60 seconds; `stale` is " +
+						"true when the cache is older than five minutes. Fields are null where a value is " +
+						"genuinely unavailable, and `warnings` names the capabilities that were unimplemented or " +
+						"failed. The provider contract those capabilities are read over is published at " +
+						"`/provider-contract.yaml`.",
 					"tags": []string{"system"},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{

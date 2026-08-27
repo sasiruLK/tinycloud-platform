@@ -1,0 +1,451 @@
+openapi: 3.0.3
+
+info:
+  title: TinyCloud Provider Contract
+  version: "0"
+  description: |
+    The contract every TinyCloud **Provider** implements.
+
+    A Provider is an independent HTTP service that holds the credentials for one
+    **Substrate** and answers questions about it. **Core** holds no cloud
+    credentials and reads infrastructure state only through this contract — its
+    own Providers included, so anything the maintainers' Providers can do, a
+    third party's can do.
+
+    This document describes the **Infra** Provider kind. Each path below is one
+    **Capability**. A Provider may implement any subset and declares which in
+    `GET /v0/capabilities`; a Capability it does not serve returns `501`, and
+    Core renders that as a named warning beside the data it did get, never as a
+    failed dashboard.
+
+    ## No stability promise at v0
+
+    Per ADR-0001 this contract may change until a second author has shipped a
+    Provider against it. Breaking changes are announced in the changelog. The
+    prefix moves to `/v1` only once a third-party implementation exists — the
+    point of `/v0` is that the first contract to meet exactly one implementation
+    should not be frozen.
+
+    ## Authentication
+
+    Every `/v0` path requires `Authorization: Bearer <token>`. The token is
+    shared out of band — in Kubernetes, a Secret mounted into the Provider and
+    referenced by Core's configuration — and a Provider must reject a missing or
+    wrong one with `401`. Providers should additionally be reachable only from
+    Core by network policy; mutual TLS is a supported hardening option and is
+    not required, so that authoring a Provider in any language means setting one
+    header.
+
+servers:
+  - url: http://tinycloud-provider-kubernetes.tinycloud.svc.cluster.local:9090
+    description: An in-cluster Provider
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: discovery
+    description: What this Provider serves.
+  - name: infra
+    description: Capabilities of the Infra Provider kind.
+
+paths:
+  /healthz:
+    get:
+      operationId: health
+      tags: [discovery]
+      summary: Liveness
+      description: |
+        Unauthenticated liveness check, for Kubernetes probes. Not a Capability:
+        it says the process is up, not that its Substrate is reachable.
+      security: []
+      responses:
+        "200":
+          description: The Provider is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v0/capabilities:
+    get:
+      operationId: capabilities
+      tags: [discovery]
+      summary: Capability discovery
+      description: |
+        Names the Provider kind this service implements and the Capabilities it
+        serves. Core calls this once per collector and then reads only the
+        Capabilities listed, so a Provider need not stub the endpoints it has no
+        data for.
+      responses:
+        "200":
+          description: What this Provider serves.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capabilities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v0/infra/instances:
+    get:
+      operationId: listInstances
+      tags: [infra]
+      summary: "Capability: instances"
+      description: |
+        The machines backing the Instance — cloud compute instances, Kubernetes
+        nodes, or whatever the Substrate calls them. Core derives each node's
+        role from its name and the free-tier allowance spent from the shapes.
+      responses:
+        "200":
+          description: Every machine that currently exists.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instances]
+                properties:
+                  instances:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Instance"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /v0/infra/metrics:
+    get:
+      operationId: queryMetric
+      tags: [infra]
+      summary: "Capability: metrics"
+      description: |
+        The newest datapoint of each series of one named metric, over the
+        trailing window.
+
+        Metric names are the contract's, not a Substrate's: a Provider
+        translates `cpu.utilization` into whatever its query language calls it.
+        A metric the Substrate has no equivalent for returns `200` with an empty
+        `series` — absent is not broken, and the value reaches the UI as null
+        rather than as a confident zero or a warning.
+      parameters:
+        - name: metric
+          in: query
+          required: true
+          description: Which metric to read.
+          schema:
+            $ref: "#/components/schemas/MetricName"
+        - name: window
+          in: query
+          required: true
+          description: |
+            How far back to look, in seconds. Core asks for a window wider than
+            the metric's own resolution.
+          schema:
+            type: integer
+            minimum: 1
+            example: 1200
+      responses:
+        "200":
+          description: The latest datapoint of each series.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [series]
+                properties:
+                  series:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Series"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /v0/infra/alarms:
+    get:
+      operationId: listAlarms
+      tags: [infra]
+      summary: "Capability: alarms"
+      description: |
+        Every alarm watching the Substrate and its current state. A Substrate
+        with no alarming of its own should not implement this Capability — a
+        `501` reported as "not supported" is more useful than an empty list that
+        reads as "nothing is wrong".
+      responses:
+        "200":
+          description: Every alarm and its state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [alarms]
+                properties:
+                  alarms:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Alarm"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /v0/infra/ingress:
+    get:
+      operationId: getIngress
+      tags: [infra]
+      summary: "Capability: ingress"
+      description: |
+        The public address traffic reaches the Instance on. An address that has
+        not been assigned yet is the empty string with `200` — pending is a
+        state, not an error.
+      responses:
+        "200":
+          description: The public address, or empty while it is pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ingress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /v0/infra/backups:
+    get:
+      operationId: listBackupObjects
+      tags: [infra]
+      summary: "Capability: backups"
+      description: |
+        Every object in the Instance's backup store. Core groups them into
+        streams by prefix and counts the storage allowance spent, so a Provider
+        returns the flat list and does no summarising of its own.
+      responses:
+        "200":
+          description: Every backup object.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [objects]
+                properties:
+                  objects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BackupObject"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: The Provider's token, shared with Core out of band.
+
+  responses:
+    BadRequest:
+      description: The request named a metric or window the contract does not define.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: The bearer token was missing or wrong.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotImplemented:
+      description: |
+        This Provider does not serve this Capability. Core names it in the
+        snapshot's warnings and renders everything else.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UpstreamError:
+      description: |
+        The Provider is up but its Substrate could not be read. Core names the
+        Capability in the snapshot's warnings and leaves its fields null.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Capabilities:
+      type: object
+      required: [kind, capabilities]
+      properties:
+        kind:
+          type: string
+          description: The Provider kind implemented.
+          enum: [infra]
+        provider:
+          type: string
+          description: An identifier for this implementation, for humans and logs.
+          example: kubernetes
+        capabilities:
+          type: array
+          description: The Capabilities of that kind this Provider serves.
+          items:
+            type: string
+            enum: [instances, metrics, alarms, ingress, backups]
+          example: [instances, metrics, ingress]
+
+    Instance:
+      type: object
+      required: [id, name, state, shape, ocpus, memoryGb, faultDomain, privateIp]
+      properties:
+        id:
+          type: string
+          description: The Substrate's own identifier for the machine.
+        name:
+          type: string
+          description: |
+            The machine's name. Core matches this against the `instance`
+            dimension of the CPU and memory metrics, so the two must agree.
+          example: k3s-control
+        state:
+          type: string
+          description: |
+            Lifecycle state. `RUNNING` means healthy; the UI treats every other
+            value as down, so report the Substrate's own word for the state
+            rather than inventing one.
+          example: RUNNING
+        shape:
+          type: string
+          description: The machine type, as the Substrate names it.
+          example: VM.Standard.A1.Flex
+        ocpus:
+          type: number
+          format: double
+          description: Physical cores allocated.
+        memoryGb:
+          type: number
+          format: double
+          description: Memory allocated, in GiB.
+        faultDomain:
+          type: string
+          description: The failure domain, availability zone, or equivalent. May be empty.
+        privateIp:
+          type: string
+          description: The machine's address on the cluster network. May be empty.
+
+    MetricName:
+      type: string
+      description: |
+        The metrics the Infra kind defines. `instance` in a CPU or memory series
+        must match the `name` of an instance.
+      enum:
+        - cpu.utilization
+        - memory.utilization
+        - ingress.healthy_backends
+        - ingress.unhealthy_backends
+        - uptime.availability
+
+    Series:
+      type: object
+      required: [dimensions, timestamp, value]
+      properties:
+        dimensions:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            What this series is about. Keys are the contract's, not a
+            Substrate's: `instance` for the CPU and memory metrics,
+            `backend_set` for the ingress backend counts, `monitor` and `target`
+            for availability.
+          example:
+            instance: k3s-control
+        timestamp:
+          type: string
+          format: date-time
+          description: When the datapoint was recorded, UTC.
+        value:
+          type: number
+          format: double
+          description: |
+            The value. Utilisation metrics are percentages, 0–100; availability
+            is a fraction, 0.0–1.0; backend counts are whole numbers.
+
+    Alarm:
+      type: object
+      required: [name, severity, status]
+      properties:
+        name:
+          type: string
+        severity:
+          type: string
+          example: CRITICAL
+        status:
+          type: string
+          description: One of `OK`, `FIRING`, `SUSPENDED`.
+          example: FIRING
+
+    Ingress:
+      type: object
+      required: [publicIp]
+      properties:
+        publicIp:
+          type: string
+          description: |
+            The public address, or the empty string while one is being
+            assigned. A hostname is acceptable where the Substrate issues one
+            instead of an address.
+          example: 129.158.225.37
+
+    BackupObject:
+      type: object
+      required: [name, sizeBytes, modified]
+      properties:
+        name:
+          type: string
+          description: |
+            The object's full key. Core groups objects into streams by the
+            leading path segment.
+          example: sqlite/2026-08-15.db
+        sizeBytes:
+          type: integer
+          format: int64
+        modified:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: A stable machine-readable code.
+          enum:
+            - bad_request
+            - unauthorized
+            - not_implemented
+            - upstream_error
+        message:
+          type: string
+          description: What went wrong, for a human reading Core's warnings.

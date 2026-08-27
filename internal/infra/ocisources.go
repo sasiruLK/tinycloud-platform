@@ -1,4 +1,4 @@
-package oci
+package infra
 
 import (
 	"context"
@@ -16,6 +16,12 @@ import (
 
 // sdkSources implements every Sources interface against the real OCI SDK.
 //
+// This is the one substrate-specific read path still linked into Core, kept so
+// that an Instance already running on Oracle Cloud loses no capability the day
+// Providers arrive. It is wired only when its configuration is supplied, and
+// it is scheduled to move out to an Infra Provider of its own, at which point
+// Core holds no cloud credentials at all.
+//
 // Only the sub-packages actually used are imported: the SDK ships a package per
 // service and importing the umbrella would drag hundreds of them into the
 // binary.
@@ -28,7 +34,18 @@ type sdkSources struct {
 	objects objectstorage.ObjectStorageClient
 }
 
-// NewSources builds SDK-backed sources authenticated as the instance itself.
+// Configured reports whether any Oracle Cloud read is configured at all. With
+// nothing configured — the state of the published image — no credential is
+// resolved and no account is contacted.
+func (c Config) Configured() bool {
+	return c.CompartmentID != "" || c.NetworkLoadBalancerID != "" ||
+		(c.ObjectStorageNamespace != "" && c.Bucket != "")
+}
+
+// NewSources builds SDK-backed sources authenticated as the instance itself,
+// for the Capabilities cfg names. A Capability whose identifiers are absent
+// yields a nil source, which the collector reports as a warning: an Instance
+// that configures only a bucket gets backups and nothing else.
 //
 // The credential comes from the metadata service at 169.254.169.254, so this
 // only succeeds on an OCI instance whose dynamic group is covered by an IAM
@@ -36,6 +53,9 @@ type sdkSources struct {
 // attached — that is the expected outcome, and the caller degrades to an
 // explanatory error on /v1/infra rather than failing to start.
 func NewSources(cfg Config) (Sources, error) {
+	if !cfg.Configured() {
+		return Sources{}, nil
+	}
 	provider, err := auth.InstancePrincipalConfigurationProvider()
 	if err != nil {
 		return Sources{}, fmt.Errorf("instance principal authentication unavailable (this only works on an OCI instance): %w", err)
@@ -66,7 +86,20 @@ func newSourcesWithProvider(cfg Config, provider common.ConfigurationProvider) (
 	}
 
 	s := &sdkSources{cfg: cfg, compute: compute, vnet: vnet, metrics: metrics, nlb: nlb, objects: objects}
-	return Sources{Instances: s, Metrics: s, Alarms: s, Ingress: s, Backups: s}, nil
+
+	// Only the reads whose identifiers were supplied are wired up. The rest
+	// stay nil and are reported as unconfigured rather than attempted.
+	src := Sources{}
+	if cfg.CompartmentID != "" {
+		src.Instances, src.Metrics, src.Alarms = s, s, s
+	}
+	if cfg.NetworkLoadBalancerID != "" {
+		src.Ingress = s
+	}
+	if cfg.ObjectStorageNamespace != "" && cfg.Bucket != "" {
+		src.Backups = s
+	}
+	return src, nil
 }
 
 // ListInstances returns every instance in the compartment that still exists,
@@ -164,23 +197,74 @@ func (s *sdkSources) attachPrivateIPs(ctx context.Context, instances []InstanceI
 	wg.Wait()
 }
 
-// QueryMetric runs one MQL query over the trailing window and returns the
-// newest datapoint of each result series.
-func (s *sdkSources) QueryMetric(ctx context.Context, namespace, query string, window time.Duration) ([]Series, error) {
+// Oracle Monitoring namespaces and the MQL behind each contract metric. The
+// query language is Oracle's; the metric names are the contract's, so this
+// mapping is where one stops and the other begins.
+const (
+	nsCompute = "oci_computeagent"
+	nsNLB     = "oci_nlb"
+	nsAPM     = "oracle_apm_synthetics"
+)
+
+// ociQuery is one contract metric expressed in Oracle's terms.
+type ociQuery struct {
+	namespace string
+	query     string
+	// dimensions renames Oracle's dimension keys to the contract's.
+	dimensions map[string]string
+}
+
+var ociQueries = map[string]ociQuery{
+	MetricCPUUtilization: {
+		namespace:  nsCompute,
+		query:      "CpuUtilization[5m].groupBy(resourceDisplayName).mean()",
+		dimensions: map[string]string{"resourceDisplayName": DimInstance},
+	},
+	MetricMemoryUtilization: {
+		namespace:  nsCompute,
+		query:      "MemoryUtilization[5m].groupBy(resourceDisplayName).mean()",
+		dimensions: map[string]string{"resourceDisplayName": DimInstance},
+	},
+	MetricHealthyBackends: {
+		namespace:  nsNLB,
+		query:      "HealthyBackends[5m].groupBy(backendSetName).max()",
+		dimensions: map[string]string{"backendSetName": DimBackendSet},
+	},
+	MetricUnhealthyBackends: {
+		namespace:  nsNLB,
+		query:      "UnhealthyBackends[5m].groupBy(backendSetName).max()",
+		dimensions: map[string]string{"backendSetName": DimBackendSet},
+	},
+	MetricUptimeAvailability: {
+		namespace:  nsAPM,
+		query:      "Availability[1h].groupBy(MonitorName,Target).mean()",
+		dimensions: map[string]string{"MonitorName": DimMonitor, "Target": DimTarget},
+	},
+}
+
+// QueryMetric answers one contract metric out of Oracle Monitoring, returning
+// the newest datapoint of each result series. A metric Oracle has no query for
+// yields no series rather than an error: absent is not broken.
+func (s *sdkSources) QueryMetric(ctx context.Context, metric string, window time.Duration) ([]Series, error) {
+	q, ok := ociQueries[metric]
+	if !ok {
+		return nil, nil
+	}
+
 	end := time.Now().UTC()
 	start := end.Add(-window)
 
 	res, err := s.metrics.SummarizeMetricsData(ctx, monitoring.SummarizeMetricsDataRequest{
 		CompartmentId: &s.cfg.CompartmentID,
 		SummarizeMetricsDataDetails: monitoring.SummarizeMetricsDataDetails{
-			Namespace: &namespace,
-			Query:     &query,
+			Namespace: &q.namespace,
+			Query:     &q.query,
 			StartTime: &common.SDKTime{Time: start},
 			EndTime:   &common.SDKTime{Time: end},
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("query %s %s: %w", namespace, query, err)
+		return nil, fmt.Errorf("query %s: %w", metric, err)
 	}
 
 	series := make([]Series, 0, len(res.Items))
@@ -190,12 +274,24 @@ func (s *sdkSources) QueryMetric(ctx context.Context, namespace, query string, w
 			continue
 		}
 		series = append(series, Series{
-			Dimensions: item.Dimensions,
+			Dimensions: renameDimensions(item.Dimensions, q.dimensions),
 			Timestamp:  latest.Timestamp.Time.UTC(),
 			Value:      *latest.Value,
 		})
 	}
 	return series, nil
+}
+
+// renameDimensions maps a vendor's dimension keys onto the contract's, dropping
+// the ones the contract does not name.
+func renameDimensions(dims map[string]string, rename map[string]string) map[string]string {
+	out := make(map[string]string, len(rename))
+	for from, to := range rename {
+		if v, ok := dims[from]; ok {
+			out[to] = v
+		}
+	}
+	return out
 }
 
 func newestDatapoint(points []monitoring.AggregatedDatapoint) (monitoring.AggregatedDatapoint, bool) {

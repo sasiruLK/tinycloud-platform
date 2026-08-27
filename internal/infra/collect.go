@@ -1,4 +1,4 @@
-package oci
+package infra
 
 import (
 	"context"
@@ -9,34 +9,52 @@ import (
 	"time"
 )
 
-// Metric namespaces and queries. The MQL windows are deliberately wider than
-// the metric's own resolution: compute agent posts every minute, the APM
-// synthetics monitors run every 15 minutes, so a narrow window regularly
-// returns nothing at all.
+// The metrics a snapshot is assembled from, named neutrally: a Provider is
+// asked for "cpu.utilization", not for a vendor's query language. Each name is
+// a Capability of the metric endpoint in the Provider contract, and a Provider
+// that has no equivalent returns no series rather than an error, so the value
+// arrives at the UI as null.
 const (
-	nsCompute = "oci_computeagent"
-	nsNLB     = "oci_nlb"
-	nsAPM     = "oracle_apm_synthetics"
-
-	queryCPU          = "CpuUtilization[5m].groupBy(resourceDisplayName).mean()"
-	queryMemory       = "MemoryUtilization[5m].groupBy(resourceDisplayName).mean()"
-	queryHealthy      = "HealthyBackends[5m].groupBy(backendSetName).max()"
-	queryUnhealthy    = "UnhealthyBackends[5m].groupBy(backendSetName).max()"
-	queryAvailability = "Availability[1h].groupBy(MonitorName,Target).mean()"
-
-	// Lookback windows handed to Monitoring alongside each query.
-	computeWindow = 20 * time.Minute
-	nlbWindow     = 20 * time.Minute
-	apmWindow     = 3 * time.Hour
-
-	dimInstance    = "resourceDisplayName"
-	dimMonitorName = "MonitorName"
-	dimTarget      = "Target"
+	MetricCPUUtilization     = "cpu.utilization"
+	MetricMemoryUtilization  = "memory.utilization"
+	MetricHealthyBackends    = "ingress.healthy_backends"
+	MetricUnhealthyBackends  = "ingress.unhealthy_backends"
+	MetricUptimeAvailability = "uptime.availability"
 )
 
-// Config names the OCI resources the snapshot is assembled from. The defaults
-// describe this tenancy; every field can be overridden from the environment so
-// the package is not welded to one account.
+// Metrics lists every metric name in the contract, in the order the
+// Conformance suite exercises them.
+var Metrics = []string{
+	MetricCPUUtilization,
+	MetricMemoryUtilization,
+	MetricHealthyBackends,
+	MetricUnhealthyBackends,
+	MetricUptimeAvailability,
+}
+
+// Lookback windows handed to the Provider alongside each metric. They are
+// deliberately wider than the metric's own resolution: a host agent that posts
+// every minute and a synthetic monitor that runs every fifteen are both read
+// through this one endpoint, so a narrow window regularly returns nothing.
+const (
+	computeWindow = 20 * time.Minute
+	ingressWindow = 20 * time.Minute
+	uptimeWindow  = 3 * time.Hour
+)
+
+// Series dimension keys. Like the metric names these are contract vocabulary,
+// not any one substrate's.
+const (
+	DimInstance   = "instance"
+	DimBackendSet = "backend_set"
+	DimMonitor    = "monitor"
+	DimTarget     = "target"
+)
+
+// Config names the resources the snapshot is assembled from. Nothing here has
+// a built-in value: an Instance's identifiers belong to whoever deployed it,
+// so an unconfigured field yields no source and a warning rather than a read
+// against somebody else's account.
 type Config struct {
 	CompartmentID          string
 	NetworkLoadBalancerID  string
@@ -45,25 +63,24 @@ type Config struct {
 	// BackupPrefixes are the streams reported separately. Objects outside
 	// them still count towards the bucket totals.
 	BackupPrefixes []string
-	// CallTimeout bounds every individual OCI call.
+	// CallTimeout bounds every individual Capability call.
 	CallTimeout time.Duration
 }
 
-// DefaultConfig returns the verified configuration for the TinyCloud tenancy.
+// DefaultConfig returns the configuration every Instance starts from: no
+// account identifiers, the conventional backup stream names, and a five second
+// budget per call. The published image therefore contacts nobody's tenancy
+// until its operator says which one.
 func DefaultConfig() Config {
 	return Config{
-		CompartmentID:          "ocid1.tenancy.oc1..aaaaaaaa7xgc5ijlnvzktzftj6ho6jpzymmiira5vhug65pcvtcdy26m3ebq",
-		NetworkLoadBalancerID:  "ocid1.networkloadbalancer.oc1.iad.amaaaaaaul44qqiaaemwwblgkpws7pf5b2p3wetsqlyn3lhkzmls425odupq",
-		ObjectStorageNamespace: "idzghas4xwzv",
-		Bucket:                 "tinycloud-backups",
-		BackupPrefixes:         []string{"sqlite", "gitops", "coordinator"},
-		CallTimeout:            5 * time.Second,
+		BackupPrefixes: []string{"sqlite", "gitops", "coordinator"},
+		CallTimeout:    5 * time.Second,
 	}
 }
 
 // ConfigWithOverrides returns DefaultConfig with any non-empty argument
-// substituted, so the tenancy details can be moved to the environment without
-// the endpoint needing configuration to work today.
+// substituted. Absent configuration leaves the field empty, which yields a nil
+// source and a warning rather than a startup failure.
 func ConfigWithOverrides(compartmentID, nlbID, namespace, bucket string) Config {
 	cfg := DefaultConfig()
 	if compartmentID != "" {
@@ -81,59 +98,69 @@ func ConfigWithOverrides(compartmentID, nlbID, namespace, bucket string) Config 
 	return cfg
 }
 
-// InstanceInfo is one compute instance, flattened out of the SDK's types.
+// The four types below are the Provider contract's wire types as well as the
+// collector's inputs. Their JSON tags are part of `/v0`: renaming a field
+// breaks every Provider written against it.
+
+// InstanceInfo is one machine backing the Instance — a cloud compute instance
+// or a Kubernetes node, depending on the Substrate.
 type InstanceInfo struct {
-	ID          string
-	Name        string
-	State       string
-	Shape       string
-	OCPUs       float64
-	MemoryGB    float64
-	FaultDomain string
-	PrivateIP   string
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	State       string  `json:"state"`
+	Shape       string  `json:"shape"`
+	OCPUs       float64 `json:"ocpus"`
+	MemoryGB    float64 `json:"memoryGb"`
+	FaultDomain string  `json:"faultDomain"`
+	PrivateIP   string  `json:"privateIp"`
 }
 
-// Series is the latest datapoint of one Monitoring result series.
+// Series is the latest datapoint of one metric result series.
 type Series struct {
-	Dimensions map[string]string
-	Timestamp  time.Time
-	Value      float64
+	Dimensions map[string]string `json:"dimensions"`
+	Timestamp  time.Time         `json:"timestamp"`
+	Value      float64           `json:"value"`
 }
 
 // AlarmStatus is one alarm's current state.
 type AlarmStatus struct {
-	Name     string
-	Severity string
-	Status   string
+	Name     string `json:"name"`
+	Severity string `json:"severity"`
+	Status   string `json:"status"`
 }
 
-// ObjectInfo is one Object Storage object.
+// ObjectInfo is one backup object.
 type ObjectInfo struct {
-	Name     string
-	Size     int64
-	Modified time.Time
+	Name     string    `json:"name"`
+	Size     int64     `json:"sizeBytes"`
+	Modified time.Time `json:"modified"`
 }
 
-// The collector talks to OCI only through these interfaces, so tests can fake
-// every service without SDK types or live credentials.
+// The collector reads the Substrate only through these five interfaces. They
+// are the sole extension point inside Core: the HTTP Provider client is one
+// implementation of them, and tests are another, so neither needs SDK types or
+// live credentials.
 type (
 	// InstanceSource lists the compute instances in the compartment.
 	InstanceSource interface {
 		ListInstances(ctx context.Context) ([]InstanceInfo, error)
 	}
-	// MetricSource runs one MQL query and returns the latest point per series.
+	// MetricSource returns the latest point per series for one named metric
+	// over the trailing window. A metric the Substrate has no equivalent for
+	// returns no series, not an error.
 	MetricSource interface {
-		QueryMetric(ctx context.Context, namespace, query string, window time.Duration) ([]Series, error)
+		QueryMetric(ctx context.Context, metric string, window time.Duration) ([]Series, error)
 	}
 	// AlarmSource lists alarm statuses.
 	AlarmSource interface {
 		ListAlarmStatuses(ctx context.Context) ([]AlarmStatus, error)
 	}
-	// IngressSource returns the load balancer's public IP.
+	// IngressSource returns the public address traffic reaches the Instance
+	// on, or the empty string while it is still being assigned.
 	IngressSource interface {
 		IngressPublicIP(ctx context.Context) (string, error)
 	}
-	// BackupSource lists the objects in the backup bucket.
+	// BackupSource lists the objects in the backup store.
 	BackupSource interface {
 		ListObjects(ctx context.Context) ([]ObjectInfo, error)
 	}
@@ -204,7 +231,7 @@ func (r *collectResult) fail(source string, err error) {
 	r.warnings = append(r.warnings, fmt.Sprintf("%s: %v", source, err))
 }
 
-// Collect fans every OCI read out concurrently and assembles whatever came
+// Collect fans every Capability read out concurrently and assembles whatever came
 // back. It never returns an error: a dashboard showing most of the truth beats
 // a 500, so a failed source leaves its fields null and adds a warning.
 func (c *Collector) Collect(ctx context.Context) *Snapshot {
@@ -227,13 +254,13 @@ func (c *Collector) Collect(ctx context.Context) *Snapshot {
 		}()
 	}
 
-	metric := func(source, namespace, query string, window time.Duration, dst *[]Series) {
+	metric := func(source, name string, window time.Duration, dst *[]Series) {
 		if c.src.Metrics == nil {
 			res.fail(source, errNoSource)
 			return
 		}
 		run(source, func(ctx context.Context) error {
-			series, err := c.src.Metrics.QueryMetric(ctx, namespace, query, window)
+			series, err := c.src.Metrics.QueryMetric(ctx, name, window)
 			if err != nil {
 				return err
 			}
@@ -304,11 +331,11 @@ func (c *Collector) Collect(ctx context.Context) *Snapshot {
 		res.fail(srcBackups, errNoSource)
 	}
 
-	metric(srcCPU, nsCompute, queryCPU, computeWindow, &res.cpu)
-	metric(srcMemory, nsCompute, queryMemory, computeWindow, &res.memory)
-	metric(srcHealthy, nsNLB, queryHealthy, nlbWindow, &res.healthy)
-	metric(srcUnhealthy, nsNLB, queryUnhealthy, nlbWindow, &res.unhealthy)
-	metric(srcUptime, nsAPM, queryAvailability, apmWindow, &res.uptime)
+	metric(srcCPU, MetricCPUUtilization, computeWindow, &res.cpu)
+	metric(srcMemory, MetricMemoryUtilization, computeWindow, &res.memory)
+	metric(srcHealthy, MetricHealthyBackends, ingressWindow, &res.healthy)
+	metric(srcUnhealthy, MetricUnhealthyBackends, ingressWindow, &res.unhealthy)
+	metric(srcUptime, MetricUptimeAvailability, uptimeWindow, &res.uptime)
 
 	wg.Wait()
 
@@ -334,8 +361,8 @@ var errNoSource = fmt.Errorf("source not configured")
 func (c *Collector) assemble(res *collectResult) *Snapshot {
 	snap := newSnapshot(c.now())
 
-	cpuByNode := latestByDimension(res.cpu, dimInstance)
-	memByNode := latestByDimension(res.memory, dimInstance)
+	cpuByNode := latestByDimension(res.cpu, DimInstance)
+	memByNode := latestByDimension(res.memory, DimInstance)
 
 	var ampereOCPU, ampereMemory float64
 	for _, inst := range res.instances {
@@ -439,8 +466,8 @@ func latestByDimension(series []Series, dimension string) map[string]*float64 {
 	return out
 }
 
-// maxAcrossSeries collapses the per-backend-set counts into one number. The
-// NLB carries the same two k3s nodes in both the :80 and :443 backend sets, so
+// maxAcrossSeries collapses the per-backend-set counts into one number. A load
+// balancer commonly carries the same nodes in its :80 and :443 backend sets, so
 // summing would double-count them; the highest set is the node count.
 func maxAcrossSeries(series []Series) *int {
 	if len(series) == 0 {
@@ -491,13 +518,13 @@ func summariseBackups(bucket string, prefixes []string, objects []ObjectInfo) *B
 	return b
 }
 
-// summariseUptime turns the APM availability series into one entry per
-// monitor, newest datapoint wins.
+// summariseUptime turns the availability series into one entry per monitor,
+// newest datapoint wins.
 func summariseUptime(series []Series) []Uptime {
 	type key struct{ monitor, target string }
 	newest := map[key]Series{}
 	for _, s := range series {
-		k := key{monitor: s.Dimensions[dimMonitorName], target: s.Dimensions[dimTarget]}
+		k := key{monitor: s.Dimensions[DimMonitor], target: s.Dimensions[DimTarget]}
 		if k.monitor == "" {
 			continue
 		}
