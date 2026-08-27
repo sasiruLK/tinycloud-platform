@@ -1,8 +1,13 @@
 # Minimal runtime image for CI builds
-# Binary is pre-compiled natively by GitHub Actions with GOOS=linux GOARCH=arm64
+# Binaries are pre-compiled natively by GitHub Actions with GOOS=linux GOARCH=arm64
 FROM gcr.io/distroless/static:nonroot
 
 COPY api /api
+# The in-tree providers and the conformance suite ship in the same image as
+# core. They run as their own Deployments — a provider holds its substrate's
+# credentials and core holds none — so one image, three entrypoints.
+COPY provider-server /provider-server
+COPY conformance /conformance
 
 USER 65532:65532
 EXPOSE 8080

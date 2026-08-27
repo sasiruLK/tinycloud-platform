@@ -1,0 +1,57 @@
+name: Test
+
+# The conformance suite runs here against the in-tree providers, so a change to
+# the provider contract that breaks an implementation fails the build rather
+# than being discovered by a provider author.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'contract.go'
+      - 'provider-contract-v0.yaml'
+      - '.github/workflows/test.yaml'
+  pull_request:
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'contract.go'
+      - 'provider-contract-v0.yaml'
+      - '.github/workflows/test.yaml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: false
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      # internal/conformance runs the published contract against the in-tree
+      # providers; internal/provider checks the contract document against what
+      # is actually served.
+      - name: Test
+        run: go test ./...
+
+      - name: Conformance suite against the Kubernetes provider
+        run: |
+          echo "=== Running the published contract against the in-tree providers ==="
+          go test ./internal/conformance/ -run Conformant -v

@@ -50,23 +50,28 @@ jobs:
           echo "=== Module cache ==="
           go env GOMODCACHE
 
-      # ── Step 4: Cross-compile ARM64 binary natively ────
-      - name: Build ARM64 binary
+      # ── Step 4: Cross-compile ARM64 binaries natively ────
+      # The provider server and the conformance suite ship in the same image:
+      # core speaks HTTP to its own providers exactly as it would to anyone
+      # else's, so they are separate processes, not separate images.
+      - name: Build ARM64 binaries
         run: |
-          echo "=== Building linux/arm64 binary ==="
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
-            -ldflags="-w -s" \
-            -o api \
-            ./cmd/api
+          for cmd in api provider-server conformance; do
+            echo "=== Building linux/arm64 $cmd ==="
+            CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+              -ldflags="-w -s" \
+              -o "$cmd" \
+              "./cmd/$cmd"
+          done
           
           echo ""
           echo "=== Binary verification ==="
-          file api
-          ls -lh api
+          file api provider-server conformance
+          ls -lh api provider-server conformance
           
           echo ""
-          echo "=== Binary checksum ==="
-          sha256sum api
+          echo "=== Binary checksums ==="
+          sha256sum api provider-server conformance
 
       # ── Step 5: Setup Docker Buildx ──────────────────
       # Buildx needed ONLY for --platform metadata, NOT for emulation

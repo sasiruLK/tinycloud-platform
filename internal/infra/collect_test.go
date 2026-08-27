@@ -1,4 +1,4 @@
-package oci
+package infra
 
 import (
 	"context"
@@ -15,15 +15,15 @@ import (
 // tests never need credentials, a network or SDK types.
 type (
 	fakeInstances func(context.Context) ([]InstanceInfo, error)
-	fakeMetrics   func(context.Context, string, string, time.Duration) ([]Series, error)
+	fakeMetrics   func(context.Context, string, time.Duration) ([]Series, error)
 	fakeAlarms    func(context.Context) ([]AlarmStatus, error)
 	fakeIngress   func(context.Context) (string, error)
 	fakeBackups   func(context.Context) ([]ObjectInfo, error)
 )
 
 func (f fakeInstances) ListInstances(ctx context.Context) ([]InstanceInfo, error) { return f(ctx) }
-func (f fakeMetrics) QueryMetric(ctx context.Context, ns, q string, w time.Duration) ([]Series, error) {
-	return f(ctx, ns, q, w)
+func (f fakeMetrics) QueryMetric(ctx context.Context, metric string, w time.Duration) ([]Series, error) {
+	return f(ctx, metric, w)
 }
 func (f fakeAlarms) ListAlarmStatuses(ctx context.Context) ([]AlarmStatus, error) { return f(ctx) }
 func (f fakeIngress) IngressPublicIP(ctx context.Context) (string, error)         { return f(ctx) }
@@ -56,33 +56,33 @@ func healthySources(t *testing.T) Sources {
 					OCPUs: 1, MemoryGB: 1, FaultDomain: "FAULT-DOMAIN-2", PrivateIP: "10.0.0.20"},
 			}, nil
 		}),
-		Metrics: fakeMetrics(func(_ context.Context, ns, query string, _ time.Duration) ([]Series, error) {
-			switch {
-			case ns == nsCompute && query == queryCPU:
+		Metrics: fakeMetrics(func(_ context.Context, metric string, _ time.Duration) ([]Series, error) {
+			switch metric {
+			case MetricCPUUtilization:
 				return []Series{
-					{Dimensions: map[string]string{dimInstance: "k3s-control"}, Timestamp: point, Value: 16.2},
-					{Dimensions: map[string]string{dimInstance: "k3s-worker-1"}, Timestamp: point, Value: 5.8},
+					{Dimensions: map[string]string{DimInstance: "k3s-control"}, Timestamp: point, Value: 16.2},
+					{Dimensions: map[string]string{DimInstance: "k3s-worker-1"}, Timestamp: point, Value: 5.8},
 				}, nil
-			case ns == nsCompute && query == queryMemory:
+			case MetricMemoryUtilization:
 				return []Series{
-					{Dimensions: map[string]string{dimInstance: "k3s-control"}, Timestamp: point, Value: 43.1},
+					{Dimensions: map[string]string{DimInstance: "k3s-control"}, Timestamp: point, Value: 43.1},
 				}, nil
-			case ns == nsNLB && query == queryHealthy:
+			case MetricHealthyBackends:
 				return []Series{
-					{Dimensions: map[string]string{"backendSetName": "k3s-80"}, Timestamp: point, Value: 2},
-					{Dimensions: map[string]string{"backendSetName": "k3s-443"}, Timestamp: point, Value: 2},
+					{Dimensions: map[string]string{DimBackendSet: "k3s-80"}, Timestamp: point, Value: 2},
+					{Dimensions: map[string]string{DimBackendSet: "k3s-443"}, Timestamp: point, Value: 2},
 				}, nil
-			case ns == nsNLB && query == queryUnhealthy:
+			case MetricUnhealthyBackends:
 				return []Series{
-					{Dimensions: map[string]string{"backendSetName": "k3s-80"}, Timestamp: point, Value: 0},
-					{Dimensions: map[string]string{"backendSetName": "k3s-443"}, Timestamp: point, Value: 0},
+					{Dimensions: map[string]string{DimBackendSet: "k3s-80"}, Timestamp: point, Value: 0},
+					{Dimensions: map[string]string{DimBackendSet: "k3s-443"}, Timestamp: point, Value: 0},
 				}, nil
-			case ns == nsAPM:
+			case MetricUptimeAvailability:
 				return []Series{
-					{Dimensions: map[string]string{dimMonitorName: "platform-uptime", dimTarget: "https://tinycloud.sasiru.lk/"},
+					{Dimensions: map[string]string{DimMonitor: "platform-uptime", DimTarget: "https://tinycloud.sasiru.lk/"},
 						Timestamp: point, Value: 1.0},
 					// An older point for the same monitor must lose to the newer one.
-					{Dimensions: map[string]string{dimMonitorName: "platform-uptime", dimTarget: "https://tinycloud.sasiru.lk/"},
+					{Dimensions: map[string]string{DimMonitor: "platform-uptime", DimTarget: "https://tinycloud.sasiru.lk/"},
 						Timestamp: point.Add(-time.Hour), Value: 0.0},
 				}, nil
 			}
@@ -109,6 +109,7 @@ func healthySources(t *testing.T) Sources {
 func testCollector(t *testing.T, src Sources) *Collector {
 	t.Helper()
 	cfg := DefaultConfig()
+	cfg.Bucket = "tinycloud-backups"
 	cfg.CallTimeout = time.Second
 	c := NewCollector(cfg, src)
 	c.nowFunc = func() time.Time { return testTime(t, "2026-08-15T19:00:00Z") }
@@ -202,7 +203,7 @@ func TestCollectSurvivesPartialFailure(t *testing.T) {
 		{
 			name: "monitoring down, compute answers",
 			break_: func(s *Sources) {
-				s.Metrics = fakeMetrics(func(context.Context, string, string, time.Duration) ([]Series, error) { return nil, errBoom })
+				s.Metrics = fakeMetrics(func(context.Context, string, time.Duration) ([]Series, error) { return nil, errBoom })
 			},
 			warning: "cpu-metrics",
 			check: func(t *testing.T, snap *Snapshot) {
@@ -359,7 +360,7 @@ func TestSnapshotJSONShape(t *testing.T) {
 // Unavailable metrics must marshal as null, not as zero.
 func TestSnapshotJSONNullsMissingMetrics(t *testing.T) {
 	src := healthySources(t)
-	src.Metrics = fakeMetrics(func(context.Context, string, string, time.Duration) ([]Series, error) { return nil, errBoom })
+	src.Metrics = fakeMetrics(func(context.Context, string, time.Duration) ([]Series, error) { return nil, errBoom })
 	src.Backups = fakeBackups(func(context.Context) ([]ObjectInfo, error) { return nil, errBoom })
 
 	raw, err := json.Marshal(testCollector(t, src).Collect(context.Background()))

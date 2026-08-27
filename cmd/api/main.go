@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -13,8 +14,9 @@ import (
 	"github.com/sasiruLK/tinycloud-platform/internal/api/response"
 	buildclient "github.com/sasiruLK/tinycloud-platform/internal/build/client"
 	"github.com/sasiruLK/tinycloud-platform/internal/config"
+	"github.com/sasiruLK/tinycloud-platform/internal/infra"
 	"github.com/sasiruLK/tinycloud-platform/internal/k8s"
-	"github.com/sasiruLK/tinycloud-platform/internal/oci"
+	"github.com/sasiruLK/tinycloud-platform/internal/provider"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 )
 
@@ -74,19 +76,44 @@ func main() {
 		builds = buildclient.New(cfg.BuildCoordinatorURL, cfg.BuildCoordinatorToken)
 	}
 
-	// Infrastructure snapshot. Instance principal authentication is resolved
-	// lazily on the first refresh, so a failure here (a laptop, a missing IAM
-	// policy) never keeps the API from starting — /v1/infra explains itself
-	// and every other route is unaffected.
-	infra := oci.NewDefaultCache(oci.ConfigWithOverrides(
+	// Infrastructure snapshot. Core reads it through the configured Providers
+	// and holds no Substrate credentials of its own. A malformed Provider list
+	// is a configuration mistake and stops startup; an absent Provider is not,
+	// and renders as a named gap on the dashboard.
+	providers, err := provider.LoadEntries(cfg.Providers, cfg.ProvidersFile)
+	if err != nil {
+		log.Fatalf("Invalid provider configuration: %v", err)
+	}
+	for _, p := range providers {
+		log.Printf("Provider %s (%s) at %s", p.Name, p.Kind, p.BaseURL)
+	}
+
+	infraCfg := infra.ConfigWithOverrides(
 		cfg.OCICompartmentID,
 		cfg.OCINetworkLoadBalancerID,
 		cfg.OCIObjectStorageNamespace,
 		cfg.OCIBackupBucket,
-	))
-	infra.Prime()
+	)
 
-	api.SetupRoutes(app, k8sClient, builds, infra)
+	// Sources are resolved lazily on the first refresh, so a Provider that is
+	// not up yet — or an Oracle credential that cannot be resolved off an OCI
+	// instance — never keeps the API from starting. /v1/infra explains itself
+	// and every other route is unaffected.
+	infraCache := infra.NewDefaultCache(infraCfg, func(ctx context.Context) (infra.Sources, error) {
+		// The Oracle Cloud reads still linked into Core fill any Capability no
+		// Provider serves, so an Instance already running on Oracle loses
+		// nothing the day it adopts Providers. They are wired only when their
+		// identifiers are configured.
+		fallback, err := infra.NewSources(infraCfg)
+		if err != nil {
+			log.Printf("[WARN] Oracle Cloud reads unavailable: %v", err)
+			fallback = infra.Sources{}
+		}
+		return provider.InfraSources(ctx, providers, fallback), nil
+	})
+	infraCache.Prime()
+
+	api.SetupRoutes(app, k8sClient, builds, infraCache)
 
 	port := cfg.Port
 	if port == "" {
