@@ -17,9 +17,9 @@ provider you write can do.
 
 ## What ships today
 
-| Provider kind | Implementation | Capabilities |
+| Provider kind | Provider | Capabilities |
 | --- | --- | --- |
-| Infra | Kubernetes (`cmd/provider-server`) | `instances`, `metrics`, `ingress` |
+| Infra | `kubernetes` (`cmd/provider-server`) | `instances`, `metrics`, `ingress` |
 
 The Kubernetes provider needs no cloud account: instances are the cluster's
 nodes, CPU and memory come from metrics-server when it is installed, and the

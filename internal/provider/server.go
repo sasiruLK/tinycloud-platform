@@ -79,13 +79,23 @@ func (s *Server) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		got := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(bearerToken(r)), []byte(want)) != 1 {
 			writeError(w, http.StatusUnauthorized, codeUnauthorized, "missing or invalid bearer token")
 			return
 		}
 		next(w, r)
 	}
+}
+
+// bearerToken returns the token of an Authorization header, or the empty
+// string when the header is missing or is not a bearer credential. The scheme
+// is part of the header, so a bare token is not a token.
+func bearerToken(r *http.Request) string {
+	scheme, token, found := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 // capability refuses a Capability this Provider has not declared, before the

@@ -30,7 +30,7 @@ func main() {
 		log.Fatalf("Unsupported provider kind %q: this binary serves %q", kind, provider.KindInfra)
 	}
 
-	implementation := env("PROVIDER_IMPLEMENTATION", "kubernetes")
+	name := env("PROVIDER_NAME", "kubernetes")
 	port := env("PORT", "9090")
 
 	token, err := tokenSource()
@@ -38,15 +38,18 @@ func main() {
 		log.Fatalf("Provider token: %v", err)
 	}
 
+	// Which in-tree Provider this process hosts. The value is the Provider's
+	// own name, the one it reports in Capability discovery and the one an
+	// operator sees in a warning.
 	var served provider.Infra
-	switch implementation {
+	switch name {
 	case "kubernetes":
 		served, err = newKubernetesProvider()
 	default:
-		err = fmt.Errorf("unknown provider implementation %q", implementation)
+		err = fmt.Errorf("this build has no provider named %q", name)
 	}
 	if err != nil {
-		log.Fatalf("Failed to start %s provider: %v", implementation, err)
+		log.Fatalf("Failed to start the %s provider: %v", name, err)
 	}
 
 	log.Printf("TinyCloud %s provider %q serving %s on port %s",
