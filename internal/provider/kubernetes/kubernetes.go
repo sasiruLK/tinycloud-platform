@@ -21,6 +21,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
@@ -250,6 +251,12 @@ func (p *Provider) BackupObjects(context.Context) ([]infra.ObjectInfo, error) {
 func (p *Provider) IngressAddress(ctx context.Context) (string, error) {
 	service, err := p.nodes.CoreV1().Services(p.ingressNamespace).Get(ctx, p.ingressName, metav1.GetOptions{})
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// No ingress controller is installed. A fresh cluster is a normal
+			// thing to be, so this is an address the Provider does not have,
+			// not a Substrate that is broken.
+			return "", nil
+		}
 		return "", provider.Upstream(fmt.Errorf("get service %s/%s: %w", p.ingressNamespace, p.ingressName, err))
 	}
 
