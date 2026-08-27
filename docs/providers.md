@@ -158,8 +158,8 @@ contract that breaks an implementation fails our build, not yours.
 
 `/v0` makes no stability promise. Per ADR-0001 the contract may change until a
 second author has shipped a provider against it; breaking changes are announced
-in the changelog, and the prefix moves to `/v1` once a third-party
-implementation exists. If you are that second author, say so — the point of the
+on the issue tracker — there is no changelog yet — and the prefix moves to `/v1`
+once a third-party implementation exists. If you are that second author, say so — the point of the
 `v0` is that your implementation gets to shape the contract before it is frozen.
 
 ## A word on trust
