@@ -31,7 +31,7 @@ as a Kubernetes Deployment alongside core. Core reaches every vendor capability
   means running that author's code in your cluster with your cloud credentials.
   Providers must be vetted like a Helm chart from a stranger, and the docs must
   say so.
-- **The out-of-process hop is affordable** because `internal/oci/cache.go`
+- **The out-of-process hop is affordable** because `internal/infra/cache.go`
   refreshes on a 60-second TTL and serves the last good snapshot on failure.
   Providers are polled, not called per request.
 - **Our own providers ship as in-tree Go, served over the contract** by a thin

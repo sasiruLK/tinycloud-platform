@@ -1,4 +1,4 @@
-package oci
+package infra
 
 import (
 	"context"
@@ -12,17 +12,18 @@ import (
 // Cache serves the infrastructure snapshot from memory and refreshes it in the
 // background.
 //
-// The UI polls /v1/infra and one refresh is a dozen OCI calls, several of them
-// metered by Monitoring. So a request never triggers a synchronous fan-out: it
-// gets whatever is in memory and, if that is older than the TTL, leaves a
-// refresh running behind it. Requests are cheap and predictable; OCI sees at
-// most one refresh per TTL.
+// The UI polls /v1/infra and one refresh is a dozen Capability calls against
+// Providers, some of which meter requests. So a request never triggers a
+// synchronous fan-out: it gets whatever is in memory and, if that is older than
+// the TTL, leaves a refresh running behind it. Requests are cheap and
+// predictable; a Provider is polled at most once per TTL, and one that is down
+// leaves the last good snapshot on screen, flagged stale.
 type Cache struct {
-	// newCollector builds the collector on first use. Instance principals are
-	// resolved through the metadata service, which is I/O that must not run in
-	// main() — a laptop with no metadata service would then block or kill
-	// startup. Deferring it here keeps the rest of the API starting normally
-	// and turns the failure into an error on this endpoint alone.
+	// newCollector builds the collector on first use. Discovering a Provider's
+	// Capabilities is I/O that must not run in main() — a Provider that is not
+	// up yet would then block or kill startup. Deferring it here keeps the rest
+	// of the API starting normally and turns the failure into an error on this
+	// endpoint alone, retried on the next refresh.
 	newCollector func(context.Context) (*Collector, error)
 
 	ttl        time.Duration // age at which a snapshot is refreshed
@@ -74,15 +75,15 @@ func NewCache(newCollector func(context.Context) (*Collector, error), opts Cache
 	}
 }
 
-// NewDefaultCache returns the cache the API serves /v1/infra from: instance
-// principal authentication, 60 second TTL, stale after five minutes.
+// NewDefaultCache returns a cache reading through the source builder given:
+// 60 second TTL, stale after five minutes.
 //
-// Authentication is resolved lazily on the first refresh, so constructing this
-// never blocks startup and never fails — off an OCI instance it simply reports
-// why on the endpoint itself.
-func NewDefaultCache(cfg Config) *Cache {
-	return NewCache(func(context.Context) (*Collector, error) {
-		src, err := NewSources(cfg)
+// Sources are built lazily on the first refresh, so constructing this never
+// blocks startup and never fails — an unreachable Substrate simply reports why
+// on the endpoint itself.
+func NewDefaultCache(cfg Config, newSources func(context.Context) (Sources, error)) *Cache {
+	return NewCache(func(ctx context.Context) (*Collector, error) {
+		src, err := newSources(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +108,7 @@ func (c *Cache) Prime() {
 
 // Get returns the cached snapshot, marked stale when it is older than the
 // stale threshold, and kicks off a background refresh when it is older than
-// the TTL. It never blocks on OCI. Until the first collection completes it
+// the TTL. It never blocks on a Provider. Until the first collection completes it
 // returns ErrNotReady, wrapped with whatever the last attempt failed on.
 func (c *Cache) Get() (*Snapshot, error) {
 	c.mu.Lock()
@@ -131,8 +132,8 @@ func (c *Cache) Get() (*Snapshot, error) {
 }
 
 // startRefreshLocked launches a refresh unless one is already running. A failed
-// attempt is throttled to one per TTL, so a broken instance principal or a
-// missing IAM policy does not turn every poll into a retry storm.
+// attempt is throttled to one per TTL, so a Provider that is down or rejecting
+// the token does not turn every poll into a retry storm.
 func (c *Cache) startRefreshLocked() {
 	if c.refreshing {
 		return
@@ -171,8 +172,8 @@ func (c *Cache) refresh() {
 }
 
 // collect builds the collector if needed, then runs one collection. Only a
-// failure to build the collector — no instance principal, no OCI reachable at
-// all — is an error; a partial collection is a valid snapshot.
+// failure to build the collector — no Provider reachable at all — is an error;
+// a partial collection is a valid snapshot.
 func (c *Cache) collect(ctx context.Context) (*Snapshot, error) {
 	c.mu.Lock()
 	collector := c.collector
@@ -180,7 +181,7 @@ func (c *Cache) collect(ctx context.Context) (*Snapshot, error) {
 
 	if collector == nil {
 		if c.newCollector == nil {
-			return nil, errors.New("no OCI collector configured")
+			return nil, errors.New("no infrastructure collector configured")
 		}
 		built, err := c.newCollector(ctx)
 		if err != nil {
