@@ -112,7 +112,7 @@ spec:
           env:
             - name: PROVIDER_KIND
               value: infra
-            - name: PROVIDER_IMPLEMENTATION
+            - name: PROVIDER_NAME
               value: kubernetes
             - name: PROVIDER_TOKEN_FILE
               value: /etc/tinycloud/provider/token

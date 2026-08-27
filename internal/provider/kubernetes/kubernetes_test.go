@@ -219,6 +219,16 @@ func TestKubernetesProviderServesIngressAddress(t *testing.T) {
 	assert.Equal(t, "", body["publicIp"], "an address still being assigned is empty, not an error")
 }
 
+// A cluster with no ingress controller installed is a normal cluster, not a
+// broken substrate — a fresh install must look like a working product.
+func TestKubernetesProviderTreatsAMissingIngressControllerAsNoAddress(t *testing.T) {
+	url := serve(t, nil, node("k3s-control", true))
+
+	status, body := get(t, url, "/v0/infra/ingress")
+	require.Equal(t, http.StatusOK, status, "no ingress controller is absent, not broken")
+	assert.Equal(t, "", body["publicIp"])
+}
+
 // Alarms and backups have no cluster-native equivalent. Reporting that honestly
 // is the point of Capability discovery.
 func TestKubernetesProviderReportsUnimplementedCapabilities(t *testing.T) {
@@ -238,6 +248,15 @@ func TestKubernetesProviderRequiresBearerToken(t *testing.T) {
 	url := serve(t, nil, node("k3s-control", true))
 
 	res, err := http.Get(url + "/v0/infra/instances")
+	require.NoError(t, err)
+	defer res.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, res.StatusCode)
+
+	// The scheme is part of the credential: a bare token is not a token.
+	bare, err := http.NewRequest(http.MethodGet, url+"/v0/infra/instances", nil)
+	require.NoError(t, err)
+	bare.Header.Set("Authorization", token)
+	res, err = http.DefaultClient.Do(bare)
 	require.NoError(t, err)
 	defer res.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, res.StatusCode)

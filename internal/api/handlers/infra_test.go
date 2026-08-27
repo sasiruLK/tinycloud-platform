@@ -332,6 +332,39 @@ func TestGetInfraSurvivesProviderDegradation(t *testing.T) {
 	}
 }
 
+// stubAlarms stands in for the Oracle Cloud reads still linked into Core: a
+// source an operator configured, which must keep working.
+type stubAlarms []infra.AlarmStatus
+
+func (s stubAlarms) ListAlarmStatuses(context.Context) ([]infra.AlarmStatus, error) {
+	return []infra.AlarmStatus(s), nil
+}
+
+// A Provider that is down when Core wires up its sources must not take a
+// Capability away from a source that works. Nobody knows what an unreachable
+// Provider serves, so it cannot outrank one that is answering.
+func TestGetInfraKeepsConfiguredSourcesWhenAProviderIsUnreachable(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	unreachable := server.URL
+	server.Close()
+
+	cfg := infra.DefaultConfig()
+	cfg.CallTimeout = 200 * time.Millisecond
+
+	cache := readyCache(t, infra.NewCache(func(ctx context.Context) (*infra.Collector, error) {
+		fallback := infra.Sources{Alarms: stubAlarms{{Name: "site-unreachable", Severity: "CRITICAL", Status: "OK"}}}
+		return infra.NewCollector(cfg, provider.InfraSources(ctx, providerEntry(unreachable), fallback)), nil
+	}, infra.CacheOptions{}))
+
+	data := getInfra(t, cache)
+
+	alarms := data["alarms"].([]any)
+	require.Len(t, alarms, 1, "the alarms an operator configured still arrive")
+	assert.Equal(t, "site-unreachable", alarms[0].(map[string]any)["name"])
+	// The Provider is still named against the Capabilities nothing else covers.
+	assertWarns(t, warningsOf(t, data), "instances: ")
+}
+
 // A Provider going down must leave the last good snapshot on screen, flagged
 // stale, rather than blanking the dashboard.
 func TestGetInfraServesLastGoodSnapshotWhenProviderGoesDown(t *testing.T) {

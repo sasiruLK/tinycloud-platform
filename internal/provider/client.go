@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -254,16 +253,13 @@ func (c *Client) statusError(res *http.Response) error {
 	return fmt.Errorf("provider %q: %s: %s", c.name, res.Status, detail)
 }
 
-// unimplemented stands in for a Capability no configured Provider serves. It
-// fails every call with ErrNotImplemented naming the Capability, so the
-// snapshot's warning says "not supported by this Provider" instead of the
-// nil-source wording, which means "you configured nothing at all".
-type unimplemented struct {
-	capability string
-	provider   string
-}
+// unimplemented stands in for a Capability that this Instance's Providers exist
+// but do not serve. It fails every call with ErrNotImplemented naming the
+// Capability, so the snapshot's warning says "no Provider serves this" rather
+// than the nil-source wording, which means "you configured nothing at all".
+type unimplemented struct{ capability string }
 
-func (u unimplemented) err() error { return notImplemented(u.capability, u.provider) }
+func (u unimplemented) err() error { return notImplemented(u.capability, "") }
 
 func (u unimplemented) ListInstances(context.Context) ([]infra.InstanceInfo, error) {
 	return nil, u.err()
@@ -278,7 +274,3 @@ func (u unimplemented) IngressPublicIP(context.Context) (string, error) { return
 func (u unimplemented) ListObjects(context.Context) ([]infra.ObjectInfo, error) {
 	return nil, u.err()
 }
-
-// IsNotImplemented reports whether err is a Capability that is absent rather
-// than broken.
-func IsNotImplemented(err error) bool { return errors.Is(err, ErrNotImplemented) }

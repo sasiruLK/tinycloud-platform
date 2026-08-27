@@ -3,9 +3,12 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	tinycloud "github.com/sasiruLK/tinycloud-platform"
+	"gopkg.in/yaml.v2"
 )
 
 // ProviderContract serves the published `/v0` Provider contract.
@@ -689,8 +692,63 @@ func OpenAPISpec(c *fiber.Ctx) error {
 		},
 	}
 
+	// The providers section is generated from the published contract rather
+	// than written here, so the two cannot drift apart.
+	spec["tags"] = []map[string]interface{}{providerTag()}
+
 	c.Set("Content-Type", "application/json")
 	return c.Status(http.StatusOK).SendString(mustJSON(spec))
+}
+
+// providerTag documents the Provider contract inside this API's own
+// documentation, reading it out of provider-contract-v0.yaml: its summary, and
+// one line per Capability endpoint taken from that endpoint's own summary.
+//
+// It is generated rather than hand-maintained because a hand-maintained copy of
+// a contract other people implement is a copy that goes stale.
+func providerTag() map[string]interface{} {
+	tag := map[string]interface{}{
+		"name": "providers",
+		"externalDocs": map[string]interface{}{
+			"description": "The full OpenAPI contract, served by this instance",
+			"url":         "/provider-contract.yaml",
+		},
+	}
+
+	var contract struct {
+		Info struct {
+			Title       string `yaml:"title"`
+			Version     string `yaml:"version"`
+			Description string `yaml:"description"`
+		} `yaml:"info"`
+		Paths map[string]struct {
+			Get struct {
+				Summary     string `yaml:"summary"`
+				Description string `yaml:"description"`
+			} `yaml:"get"`
+		} `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(tinycloud.ProviderContractV0, &contract); err != nil {
+		// The contract is embedded at build time, so this cannot happen without
+		// the document being malformed — in which case say so rather than
+		// serving a confident description of nothing.
+		tag["description"] = "The provider contract could not be read: " + err.Error()
+		return tag
+	}
+
+	endpoints := make([]string, 0, len(contract.Paths))
+	for path, definition := range contract.Paths {
+		if definition.Get.Summary == "" {
+			continue
+		}
+		endpoints = append(endpoints, "- `GET "+path+"` — "+definition.Get.Summary)
+	}
+	sort.Strings(endpoints)
+
+	tag["description"] = contract.Info.Description +
+		"\n\n### Endpoints\n\n" + strings.Join(endpoints, "\n") +
+		"\n\nThe contract itself is served at `/provider-contract.yaml`."
+	return tag
 }
 
 func unauthorizedResponse() map[string]interface{} {
