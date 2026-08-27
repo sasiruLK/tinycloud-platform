@@ -35,6 +35,9 @@ _Avoid_: service, workload, project, deployment
 
 ### Providers
 
+See `docs/providers.md` for the contract, how an instance is configured, and
+how to write one.
+
 **Provider**:
 An HTTP service implementing the `/v0` contract for one capability, deployed
 alongside core and holding the credentials for its substrate.
