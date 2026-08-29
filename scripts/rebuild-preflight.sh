@@ -5,7 +5,7 @@ set -euo pipefail
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 OCI_CMD="${OCI_CMD:-}"
 OCI_REGION="${OCI_REGION:-us-ashburn-1}"
-BASTION_ID="${BASTION_ID:-ocid1.bastion.oc1.iad.amaaaaaaul44qqiax2v6kabqowojtterbpevcp2yviv7ipf6daot3qhnt42a}"
+BASTION_ID="${BASTION_ID:?set BASTION_ID to this instance's bastion OCID}"
 
 declare -A HOSTS=(
   ["k3s-control"]="150.136.8.120"

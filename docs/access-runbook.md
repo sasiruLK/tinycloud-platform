@@ -21,7 +21,7 @@ creation, so the current key works without ever touching `authorized_keys`.
 | Item | Value |
 |------|-------|
 | Name | `tinycloud-lab-bastion` |
-| OCID | `ocid1.bastion.oc1.iad.amaaaaaaul44qqiax2v6kabqowojtterbpevcp2yviv7ipf6daot3qhnt42a` |
+| OCID | `$BASTION_ID` — this instance's bastion OCID, kept in the operator's environment, not here |
 | State | `ACTIVE` |
 | Max session TTL | `10800` seconds (3 hours) |
 | Client CIDR allow list | `0.0.0.0/0` |
@@ -36,7 +36,7 @@ check the plugin first. The `0.0.0.0/0` client allow list is loose; tightening i
 
 ```bash
 export SSH_KEY="$HOME/.ssh/id_ed25519"
-export BASTION_ID='ocid1.bastion.oc1.iad.amaaaaaaul44qqiax2v6kabqowojtterbpevcp2yviv7ipf6daot3qhnt42a'
+export BASTION_ID='ocid1.bastion.oc1.iad.…'   # this instance's bastion
 ```
 
 ## Get a Shell on k3s-control
@@ -127,5 +127,5 @@ name. Ignore its rebuild framing.
 
 - Some guests report stale OS hostnames. Treat OCI instance display names as the source of truth.
 - Everything is in the **root compartment**; no compartment OCID is needed for these lookups.
-- Other docs: `docs/infrastructure-runbook.md` (current state), `docs/architecture-plan.md` and
-  `docs/build-infrastructure.md` (history), `gitops-lab/README.md` (GitOps source of truth).
+- Other docs: `docs/infrastructure-runbook.md` (current state), `docs/history/architecture-plan.md` and
+  `docs/history/build-infrastructure.md` (history), `gitops-lab/README.md` (GitOps source of truth).

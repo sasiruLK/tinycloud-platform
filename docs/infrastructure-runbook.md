@@ -7,7 +7,7 @@ pending rebuild; the cluster is healthy and serving. Everything lives in the **r
 | Item | Value |
 |------|-------|
 | Region | `us-ashburn-1` |
-| Tenancy OCID | `ocid1.tenancy.oc1..aaaaaaaa7xgc5ijlnvzktzftj6ho6jpzymmiira5vhug65pcvtcdy26m3ebq` |
+| Tenancy OCID | `$OCI_COMPARTMENT_ID` — this instance's tenancy OCID, supplied to core as configuration |
 | Object Storage namespace | `idzghas4xwzv` |
 | VCN subnet | `10.0.0.0/24` |
 | k3s API endpoint | `10.0.0.95:6443` |
