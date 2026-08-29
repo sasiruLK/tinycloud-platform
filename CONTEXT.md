@@ -10,7 +10,7 @@ capability is reached through a provider.
 ### The platform
 
 **TinyCloud**:
-The platform as a whole: core, providers, and CLI together.
+The platform as a whole: core and providers together.
 _Avoid_: the platform, the lab, the cluster
 
 **Core**:

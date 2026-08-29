@@ -29,6 +29,15 @@ most releases will not be one.
 - **The Oracle reads will move out of core into an Infra provider of their
   own** ([#11](https://github.com/sasiruLK/tinycloud-platform/issues/11)), at
   which point core holds no cloud credentials on any substrate.
+- **There will be a Helm chart, and then possibly a CLI**
+  ([#13](https://github.com/sasiruLK/tinycloud-platform/issues/13)). There is no
+  way to install TinyCloud today: `scripts/bootstrap-gitops.sh` installs Argo CD
+  and applies apps from a sibling GitOps checkout, which assumes a repository
+  laid out like the maintainer's. The chart comes first because it needs no
+  distribution story and composes with GitOps. A CLI's one genuinely unique job
+  is scaffolding an instance's GitOps repository — a generative act a chart
+  cannot do — and it waits until somebody who is not the maintainer has tried to
+  stand an instance up and found that it matters.
 
 ## [0.1.0] - 2026-08-29
 
