@@ -9,3 +9,6 @@
 go.work
 vendor/
 .idea/
+
+# Build output. A compiled coordinator was tracked here until 2026-08-29.
+bin/
