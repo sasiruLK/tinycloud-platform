@@ -19,14 +19,16 @@ most releases will not be one.
   provider calls core for work rather than being called by it, because the thing
   that runs a build is a machine with a container runtime and requiring it to be
   reachable from core is the wrong trade. This is decided but unbuilt —
-  [ADR-0004](docs/adr/0004-build-providers-call-core.md). If you are writing an
+  [ADR-0004](docs/adr/0004-build-providers-call-core.md) and
+  [#12](https://github.com/sasiruLK/tinycloud-platform/issues/12). If you are writing an
   **Infra** provider it does not affect you. If you were waiting to plug in your
   own build executor, read it and argue with it now rather than after.
 - **The conformance suite will grow a second mode.** It proves a provider by
   calling a URL, which a Build provider does not have. Until that mode exists,
   the suite is the definition of a working *Infra* provider.
 - **The Oracle reads will move out of core into an Infra provider of their
-  own**, at which point core holds no cloud credentials on any substrate.
+  own** ([#11](https://github.com/sasiruLK/tinycloud-platform/issues/11)), at
+  which point core holds no cloud credentials on any substrate.
 
 ## [0.1.0] - 2026-08-29
 
