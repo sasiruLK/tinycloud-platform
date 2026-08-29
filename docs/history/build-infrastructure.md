@@ -1,7 +1,7 @@
 # TinyCloud Build Infrastructure — Historical
 
 > **This describes a system that no longer exists.** Kept as a record of the Phase 1 build design.
-> For current state see [infrastructure-runbook.md](./infrastructure-runbook.md).
+> For current state see [infrastructure-runbook.md](../infrastructure-runbook.md).
 
 Two things in the design below are dead as of `2026-08-15`:
 

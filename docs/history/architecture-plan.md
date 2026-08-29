@@ -1,7 +1,7 @@
 # TinyCloud Infrastructure Architecture Plan
 
 > **Historical planning document. Preserved as a record of thinking, not as a target.**
-> For the current state of the lab, use [infrastructure-runbook.md](./infrastructure-runbook.md).
+> For the current state of the lab, use [infrastructure-runbook.md](../infrastructure-runbook.md).
 
 ## Void Notice — read before using anything below (2026-08-15)
 
@@ -26,7 +26,7 @@ Other assumptions here that reality has since overtaken:
   The lab is four VMs: `k3s-control` and `k3s-worker-1` (ARM, in k3s) plus two AMD micros.
 - **No dedicated ARM build VM exists**, so Phase 1's "repurpose monitoring-vm as native ARM64
   builder" never happened. Where user-app builds should run is an **open question** — see
-  [infrastructure-runbook.md](./infrastructure-runbook.md#open-question--where-do-user-app-builds-run).
+  [infrastructure-runbook.md](../infrastructure-runbook.md#open-question--where-do-user-app-builds-run).
 - **Phase 3's Autonomous DB / NoSQL designs are untouched work**, not deployed state.
 - **There is no OCI Vault in this tenancy**, so every Vault-based secrets design here is unbuilt.
 - **Notifications topic `tinycloud-alerts` is `ACTIVE` but has zero alarms**, so no alerting exists.
@@ -157,7 +157,7 @@ Every Always Free service and its planned role:
 **Goal**: Align documentation and team understanding with actual deployment and limits.
 
 - [x] Document real 6-VM layout (this document)
-- [x] Private IPs and VCN assignments — see [infrastructure-runbook.md](./infrastructure-runbook.md)
+- [x] Private IPs and VCN assignments — see [infrastructure-runbook.md](../infrastructure-runbook.md)
 - [ ] Inventory current GHCR image sizes and Object Storage usage — run `./scripts/phase0-inventory.sh`
 
 ---
