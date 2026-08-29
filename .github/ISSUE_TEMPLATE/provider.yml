@@ -1,0 +1,68 @@
+name: I am writing a provider
+description: Tell us which substrate you are implementing the /v0 contract against.
+labels: ["provider", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the issue the README asks you to open, and it is the most useful
+        one in the tracker.
+
+        `/v0` has met exactly one substrate. Until it meets a second, nobody
+        knows which parts of it are genuinely neutral and which are
+        Kubernetes-shaped wearing a neutral name. **Your implementation gets to
+        shape the contract before it is frozen** — that is what the version
+        prefix is for. If something does not fit, that is a finding about the
+        contract, not about your substrate.
+
+  - type: input
+    id: substrate
+    attributes:
+      label: Which substrate
+      placeholder: Hetzner Cloud, AWS, Proxmox, bare metal, ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Which provider kind
+      options:
+        - Infra
+        - Build (not yet specified — see the changelog)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: capabilities
+    attributes:
+      label: Which capabilities you expect to serve
+      description: A provider may implement any subset. Unimplemented ones return 501 and are not a failure.
+      options:
+        - label: instances
+        - label: metrics
+        - label: alarms
+        - label: ingress
+        - label: backups
+
+  - type: textarea
+    id: friction
+    attributes:
+      label: What does not fit
+      description: >
+        Anything in the contract that is awkward, impossible, or obviously
+        shaped by somebody else's cloud. Be blunt — this is the single most
+        valuable thing in this form.
+
+  - type: input
+    id: language
+    attributes:
+      label: What are you writing it in
+      description: Any language that serves HTTP is fine; we would like to know whether the OpenAPI document generates a usable server in yours.
+
+  - type: textarea
+    id: conformance
+    attributes:
+      label: Conformance output
+      description: Output of `go run ./cmd/conformance -url ... -token ...`, if you have got that far. Not required to file.
+      render: text
