@@ -3,13 +3,13 @@
 > Historical execution log, and much of it is now false: `build-vm` (10.0.0.107) no longer exists and
 > OCIR returns HTTP 403 `FREE_TIER_NOT_SUPPORTED` on this tenancy, so the OCIR steps below are void
 > and the lab runs entirely on GHCR. `scripts/deploy/setup-ocir.sh` has been deleted.
-> For current state use [infrastructure-runbook.md](./infrastructure-runbook.md).
+> For current state use [infrastructure-runbook.md](../infrastructure-runbook.md).
 
 Executed 2026-05-30.
 
 ## Phase 0 — Done
 
-- [x] VM inventory with private IPs — [infrastructure-runbook.md](./infrastructure-runbook.md)
+- [x] VM inventory with private IPs — [infrastructure-runbook.md](../infrastructure-runbook.md)
 - [x] `./scripts/phase0-inventory.sh` added (run with OCI CLI for storage/GHCR audit)
 - [x] OCI namespace confirmed: `idzghas4xwzv`
 
