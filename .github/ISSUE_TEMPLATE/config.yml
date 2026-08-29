@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/sasiruLK/tinycloud-platform/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue. See SECURITY.md.
+  - name: The provider contract
+    url: https://github.com/sasiruLK/tinycloud-platform/blob/main/docs/providers.md
+    about: How the /v0 contract works, how to configure an instance's providers, and how to write your own.
+  - name: Glossary
+    url: https://github.com/sasiruLK/tinycloud-platform/blob/main/CONTEXT.md
+    about: What provider, capability, substrate, instance, core and app mean here. Worth two minutes before filing.

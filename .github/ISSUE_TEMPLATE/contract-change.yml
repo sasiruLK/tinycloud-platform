@@ -1,0 +1,52 @@
+name: Propose a change to the /v0 contract
+description: The published provider contract should be different in some specific way.
+labels: ["contract", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `/v0` carries no stability promise and may change until a second author
+        has shipped a provider against it. Proposals grounded in a real
+        implementation carry far more weight than ones grounded in taste — see
+        [ADR-0003](https://github.com/sasiruLK/tinycloud-platform/blob/main/docs/adr/0003-contract-metrics-are-named-not-queried.md),
+        which is exactly this form's best outcome.
+
+  - type: textarea
+    id: current
+    attributes:
+      label: What the contract says today
+      description: Quote the relevant part of provider-contract-v0.yaml.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Why that is wrong
+      description: Ideally, the substrate it cannot express and why.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What it should say instead
+    validations:
+      required: true
+
+  - type: dropdown
+    id: breaking
+    attributes:
+      label: Is this breaking for existing providers?
+      options:
+        - "Additive: existing providers keep working unchanged"
+        - "Breaking: existing providers must change"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: implementation
+    attributes:
+      label: Are you implementing a provider that needs this?
+      description: A link to your implementation, or "no, this is from reading the spec". Both are welcome; they are weighted differently.

@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in TinyCloud does not do what it says it does.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: a capability your substrate does not offer is not a bug.
+        Providers return `501` for capabilities they do not serve, and core
+        renders those as named warnings on purpose — that is capability
+        discovery working. A bug is when the dashboard is blank, panics, shows
+        something false, or names a failure that is not happening.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, including the exact warning or error text if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      placeholder: |
+        1. Configure providers as ...
+        2. Open the console at ...
+        3. The node list shows ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag, or the commit SHA you built from.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Your instance
+      description: >
+        Kubernetes distribution and version, which providers you have configured
+        and which capabilities they declare, and whether metrics-server is
+        installed. Redact anything you would not put in a public repository.
+    validations:
+      required: true
