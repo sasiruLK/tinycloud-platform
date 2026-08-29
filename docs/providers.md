@@ -1,9 +1,10 @@
 # Providers
 
-Core holds no cloud credentials. Everything it knows about the infrastructure
-an instance runs on, it learns by asking a **provider**: an independent HTTP
-service that holds the credentials for one substrate and answers the published
-[`/v0` contract](../provider-contract-v0.yaml).
+Everything core knows about the infrastructure an instance runs on, it learns by
+asking a **provider**: a service that holds the credentials for one substrate
+and speaks the published [`/v0` contract](../provider-contract-v0.yaml). The one
+exception is the legacy Oracle read path still linked into core, described
+below.
 
 The maintainers' own providers are not special. They are separate processes
 answering the same contract over the same HTTP, so anything they can do, a
@@ -14,6 +15,8 @@ provider you write can do.
   `/provider-contract.yaml`.
 - Why it is HTTP and not a Go interface: [ADR-0001](adr/0001-providers-as-http-services.md).
 - Why metrics are named rather than queried: [ADR-0003](adr/0003-contract-metrics-are-named-not-queried.md).
+- Why a Build provider will call core rather than be called by it, and why
+  there is no Registry kind: [ADR-0004](adr/0004-build-providers-call-core.md).
 
 ## What ships today
 
@@ -130,7 +133,20 @@ KUBECONFIG=~/.kube/config \
 `GET /v1/infra` now serves your cluster's nodes. No cloud account is involved
 at any point.
 
-## Writing a provider
+## Kinds
+
+**Infra** is the only kind that exists. **Build** is specified in
+[ADR-0004](adr/0004-build-providers-call-core.md) and not built: it inverts the
+direction, with the provider calling core for work rather than core calling the
+provider, because a build executor is a machine with a container runtime and
+requiring it to be reachable from core is the wrong trade.
+
+There is no **Registry** kind. The glossary listed one until 2026-08-29, but
+core has no operation it would call a registry provider for that is not "a
+string it already has" — `IMAGE_PREFIX`. Like secrets and ingress, the registry
+is configuration.
+
+## Writing an Infra provider
 
 1. Generate a client or server from
    [`provider-contract-v0.yaml`](../provider-contract-v0.yaml), in whatever
@@ -151,6 +167,10 @@ at any point.
    implements one capability and reports the rest as unimplemented is
    conformant.
 
+   The suite calls a provider at a URL, so it proves an **Infra** provider.
+   Proving a Build provider means a second mode in which the suite impersonates
+   core; that does not exist yet.
+
 The same suite runs in CI against the in-tree providers, so a change to the
 contract that breaks an implementation fails our build, not yours.
 
@@ -158,8 +178,9 @@ contract that breaks an implementation fails our build, not yours.
 
 `/v0` makes no stability promise. Per ADR-0001 the contract may change until a
 second author has shipped a provider against it; breaking changes are announced
-on the issue tracker — there is no changelog yet — and the prefix moves to `/v1`
-once a third-party implementation exists. If you are that second author, say so — the point of the
+in the [changelog](../CHANGELOG.md) and the prefix moves to `/v1` once a
+third-party implementation exists. `/v0` is the contract's version, not the
+repository's — releases are tagged semver and move independently. If you are that second author, say so — the point of the
 `v0` is that your implementation gets to shape the contract before it is frozen.
 
 ## A word on trust
@@ -169,7 +190,11 @@ cluster, holding your substrate's credentials. **Vet a provider like a Helm
 chart from a stranger**: read what it does, check what RBAC and secrets it
 asks for, and prefer one whose source you can read.
 
-The change is still a net improvement on what came before, where core itself
-authenticated to the cloud: the blast radius of a compromised API is now no
-cloud credentials at all, and the blast radius of a bad provider is one
-substrate.
+The change is still a net improvement on what came before, where core
+authenticated to the cloud for every substrate it read: the blast radius of a
+bad provider is one substrate, and on a substrate reached only through providers
+a compromised core holds no cloud credentials at all.
+
+On an Oracle instance that is not yet true. The Oracle reads are still linked
+into core and use the identifiers the operator configures, so core there holds
+that tenancy's credentials until the path moves out to a provider of its own.
