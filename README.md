@@ -15,7 +15,7 @@ still linked into core**, wired only when an operator supplies that tenancy's
 identifiers. Nothing about a tenancy is compiled in, and an unconfigured
 instance contacts no account at all — but until that path moves out to a
 provider of its own, core on an Oracle instance does hold Oracle credentials.
-Moving it is [tracked as an open issue](https://github.com/sasiruLK/tinycloud-platform/issues).
+Moving it is [issue #11](https://github.com/sasiruLK/tinycloud-platform/issues/11).
 
 - **Glossary and domain language**: [`CONTEXT.md`](CONTEXT.md)
 - **Changelog**: [`CHANGELOG.md`](CHANGELOG.md)
