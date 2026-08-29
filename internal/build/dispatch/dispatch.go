@@ -85,6 +85,18 @@ func (d *Dispatcher) Dispatch(ctx context.Context, jobID, appName, repoURL, ref 
 	if d == nil {
 		return fmt.Errorf("build dispatcher not configured: set GITHUB_TOKEN and BUILD_WORKFLOW_REPO")
 	}
+	// Checked here rather than in New so that an operator who has not finished
+	// configuring the build plane still gets a coordinator that starts, a
+	// dashboard that renders, and a named failure at the point they ask for a
+	// build. Neither value has a default: one would push this instance's images
+	// into somebody else's registry namespace, and the other would report this
+	// instance's build status to somebody else's host.
+	if strings.TrimSpace(d.cfg.ImagePrefix) == "" {
+		return fmt.Errorf("build dispatcher not configured: set IMAGE_PREFIX to the registry path images are pushed under, e.g. ghcr.io/your-account")
+	}
+	if strings.TrimSpace(d.cfg.CoordinatorURL) == "" {
+		return fmt.Errorf("build dispatcher not configured: set BUILD_COORDINATOR_PUBLIC_URL to the address the build reports back to")
+	}
 
 	body, err := json.Marshal(dispatchBody{
 		EventType: EventType,

@@ -24,11 +24,18 @@ func main() {
 	// Builds execute in GitHub Actions; the coordinator keeps the queue,
 	// lifecycle, logs and UI. Nil when unconfigured, which leaves jobs queued
 	// for a polling runner instead.
+	//
+	// None of these have a default. They named the maintainer's workflow repo,
+	// host and registry namespace until 2026-08-29, which meant a published
+	// image carried one operator's identity into everybody else's cluster —
+	// the same defect the Oracle tenancy defaults had, in the build plane
+	// rather than the read path. An unconfigured coordinator now names what is
+	// missing when a build is requested, and starts either way.
 	dispatcher := dispatch.New(dispatch.Config{
 		Token:          os.Getenv("GITHUB_TOKEN"),
-		WorkflowRepo:   env("BUILD_WORKFLOW_REPO", "sasiruLK/tinycloud-platform"),
-		CoordinatorURL: env("BUILD_COORDINATOR_PUBLIC_URL", "https://tinycloud.sasiru.lk"),
-		ImagePrefix:    env("IMAGE_PREFIX", "ghcr.io/sasirulk"),
+		WorkflowRepo:   os.Getenv("BUILD_WORKFLOW_REPO"),
+		CoordinatorURL: os.Getenv("BUILD_COORDINATOR_PUBLIC_URL"),
+		ImagePrefix:    os.Getenv("IMAGE_PREFIX"),
 	})
 	if dispatcher == nil {
 		log.Print("build dispatcher disabled: GITHUB_TOKEN or BUILD_WORKFLOW_REPO not set")

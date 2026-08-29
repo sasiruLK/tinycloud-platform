@@ -27,6 +27,28 @@ func TestNilDispatcherReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "not configured")
 }
 
+// The registry namespace and the reporting address carried the maintainer's
+// own values as defaults until 2026-08-29. With the defaults gone, an operator
+// who has not set them must be told which one is missing rather than have their
+// images pushed under somebody else's account.
+func TestDispatchNamesMissingBuildPlaneConfiguration(t *testing.T) {
+	t.Run("image prefix", func(t *testing.T) {
+		d := New(Config{Token: "t", WorkflowRepo: "o/r", CoordinatorURL: "https://core.example"})
+		require.NotNil(t, d)
+		err := d.Dispatch(context.Background(), "j1", "app", "https://github.com/o/r", "main", 8080)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "IMAGE_PREFIX")
+	})
+
+	t.Run("coordinator url", func(t *testing.T) {
+		d := New(Config{Token: "t", WorkflowRepo: "o/r", ImagePrefix: "ghcr.io/someone"})
+		require.NotNil(t, d)
+		err := d.Dispatch(context.Background(), "j1", "app", "https://github.com/o/r", "main", 8080)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "BUILD_COORDINATOR_PUBLIC_URL")
+	})
+}
+
 func TestDispatchSendsExpectedPayload(t *testing.T) {
 	var gotPath, gotAuth string
 	var body dispatchBody
@@ -66,7 +88,13 @@ func TestDispatchSurfacesGitHubError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := New(Config{Token: "tok", WorkflowRepo: "o/r", HTTPClient: srv.Client()})
+	d := New(Config{
+		Token:          "tok",
+		WorkflowRepo:   "o/r",
+		CoordinatorURL: "https://core.example",
+		ImagePrefix:    "ghcr.io/someone",
+		HTTPClient:     srv.Client(),
+	})
 	d.cfg.baseURL = srv.URL
 
 	err := d.Dispatch(context.Background(), "j", "a", "https://github.com/o/r", "main", 8080)
