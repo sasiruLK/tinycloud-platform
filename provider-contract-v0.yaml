@@ -233,18 +233,30 @@ paths:
       tags: [infra]
       summary: "Capability: backups"
       description: |
-        Every object in the Instance's backup store. Core groups them into
-        streams by prefix and counts the storage allowance spent, so a Provider
-        returns the flat list and does no summarising of its own.
+        Every object in the Instance's backup store, and what the store is
+        called. Core groups the objects into streams by prefix and counts the
+        storage allowance spent, so a Provider returns the flat list and does no
+        summarising of its own.
+
+        Core holds no Substrate identifiers, so it cannot name the store itself:
+        `store` is how the dashboard says which bucket, volume or path the
+        backups are in. A Provider that has no meaningful name for it may return
+        the empty string, which renders as unknown rather than as a failure.
       responses:
         "200":
-          description: Every backup object.
+          description: Every backup object, and the name of the store holding them.
           content:
             application/json:
               schema:
                 type: object
-                required: [objects]
+                required: [store, objects]
                 properties:
+                  store:
+                    type: string
+                    description: |
+                      The backup location's name on this Substrate — a bucket, a
+                      volume, a path. Empty when the Provider has none to give.
+                    example: tinycloud-backups
                   objects:
                     type: array
                     items:

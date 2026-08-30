@@ -112,38 +112,32 @@ type anyInfraSource interface {
 // composing the five is one loop rather than five near-identical branches.
 var infraSlots = []struct {
 	capability string
-	filled     func(infra.Sources) bool
 	fill       func(*infra.Sources, anyInfraSource)
 }{
-	{CapabilityInstances, func(s infra.Sources) bool { return s.Instances != nil },
-		func(s *infra.Sources, v anyInfraSource) { s.Instances = v }},
-	{CapabilityMetrics, func(s infra.Sources) bool { return s.Metrics != nil },
-		func(s *infra.Sources, v anyInfraSource) { s.Metrics = v }},
-	{CapabilityAlarms, func(s infra.Sources) bool { return s.Alarms != nil },
-		func(s *infra.Sources, v anyInfraSource) { s.Alarms = v }},
-	{CapabilityIngress, func(s infra.Sources) bool { return s.Ingress != nil },
-		func(s *infra.Sources, v anyInfraSource) { s.Ingress = v }},
-	{CapabilityBackups, func(s infra.Sources) bool { return s.Backups != nil },
-		func(s *infra.Sources, v anyInfraSource) { s.Backups = v }},
+	{CapabilityInstances, func(s *infra.Sources, v anyInfraSource) { s.Instances = v }},
+	{CapabilityMetrics, func(s *infra.Sources, v anyInfraSource) { s.Metrics = v }},
+	{CapabilityAlarms, func(s *infra.Sources, v anyInfraSource) { s.Alarms = v }},
+	{CapabilityIngress, func(s *infra.Sources, v anyInfraSource) { s.Ingress = v }},
+	{CapabilityBackups, func(s *infra.Sources, v anyInfraSource) { s.Backups = v }},
 }
 
 // InfraSources composes the collector's five sources out of the configured
-// Infra Providers.
+// Infra Providers. Providers are the only way core reads a Substrate; there is
+// no path behind them.
 //
 // A Capability goes to the first Provider that declares it. What no Provider
-// declares falls back to fallback — the in-process Oracle Cloud reads, when an
-// operator has configured them — and what neither supplies is answered with a
-// "not implemented" error naming the Capability, so the dashboard can say "not
-// supported" rather than "broken". With nothing configured at all every source
-// is nil, which the collector already reports as a warning per source.
+// declares is answered with a "not implemented" error naming the Capability,
+// so the dashboard can say "not supported" rather than "broken". With nothing
+// configured at all every source is nil, which the collector already reports
+// as a warning per source.
 //
 // A Provider that cannot be reached to be asked what it serves is wired up for
-// whatever is left over after that, rather than being dropped: it is down, not
-// absent, so each call names it in a warning and retries discovery, and it
-// starts answering by itself when it comes back. It ranks below the fallback
-// precisely because nobody knows what it serves — a Provider that is merely
-// unreachable must not take alarms away from Oracle reads that work.
-func InfraSources(ctx context.Context, entries []Entry, fallback infra.Sources) infra.Sources {
+// whatever is left over, rather than being dropped: it is down, not absent, so
+// each call names it in a warning and retries discovery, and it starts
+// answering by itself when it comes back. It ranks below every Provider that
+// did answer, because nobody knows what it serves — one unreachable Provider
+// must not take alarms away from another that is working.
+func InfraSources(ctx context.Context, entries []Entry) infra.Sources {
 	var (
 		configured   bool
 		byCapability = map[string]*Client{}
@@ -170,13 +164,11 @@ func InfraSources(ctx context.Context, entries []Entry, fallback infra.Sources) 
 		}
 	}
 
-	src := fallback
+	var src infra.Sources
 	for _, slot := range infraSlots {
 		switch {
 		case byCapability[slot.capability] != nil:
 			slot.fill(&src, byCapability[slot.capability])
-		case slot.filled(src):
-			// The fallback supplies this one.
 		case len(undiscovered) > 0:
 			slot.fill(&src, undiscovered[0])
 		case configured:

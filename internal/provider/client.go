@@ -183,15 +183,15 @@ func (c *Client) IngressPublicIP(ctx context.Context) (string, error) {
 }
 
 // ListObjects implements infra.BackupSource.
-func (c *Client) ListObjects(ctx context.Context) ([]infra.ObjectInfo, error) {
+func (c *Client) ListObjects(ctx context.Context) (infra.BackupListing, error) {
 	if err := c.supports(ctx, CapabilityBackups); err != nil {
-		return nil, err
+		return infra.BackupListing{}, err
 	}
 	var body backupsBody
 	if err := c.get(ctx, pathBackups, nil, &body); err != nil {
-		return nil, err
+		return infra.BackupListing{}, err
 	}
-	return body.Objects, nil
+	return infra.BackupListing{Store: body.Store, Objects: body.Objects}, nil
 }
 
 // get performs one contract call and decodes it into out.
@@ -271,6 +271,6 @@ func (u unimplemented) ListAlarmStatuses(context.Context) ([]infra.AlarmStatus, 
 	return nil, u.err()
 }
 func (u unimplemented) IngressPublicIP(context.Context) (string, error) { return "", u.err() }
-func (u unimplemented) ListObjects(context.Context) ([]infra.ObjectInfo, error) {
-	return nil, u.err()
+func (u unimplemented) ListObjects(context.Context) (infra.BackupListing, error) {
+	return infra.BackupListing{}, u.err()
 }
