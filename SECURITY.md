@@ -36,11 +36,15 @@ belonging to people who do not trust each other, TinyCloud is the wrong tool, an
 a report that one app can reach another is not a vulnerability — it is this
 non-goal working as documented.
 
-**Core still holds Oracle Cloud credentials** when an operator configures them,
-because the legacy Oracle read path has not yet moved out to a provider of its
-own. Until it does, core's blast radius on an Oracle instance is larger than the
-architecture intends. This is tracked as an open issue, and it is the reason the
-README's description of core names its own exception.
+**Core reads every substrate through a provider and holds no credential to read
+one**, including on Oracle Cloud. A compromised core exposes what it can reach
+over the provider contract — infrastructure state — and no cloud credential for
+reading a substrate.
+
+One exception, and it is an egress path rather than a read: the build
+coordinator can ship build logs to OCI Logging, which resolves an Oracle
+instance-principal credential when `OCI_LOG_ID` is set. It is off unless an
+operator turns it on.
 
 ## Versions
 

@@ -13,6 +13,33 @@ most releases will not be one.
 
 ## Unreleased
 
+### Added
+
+- **An Oracle Cloud Infra provider** ([#11](https://github.com/sasiruLK/tinycloud-platform/issues/11)).
+  The Oracle reads that were linked into core now run as a provider like any
+  other, serving all five capabilities of the Infra kind over `/v0`. It
+  authenticates as the compute instance it runs on, so it starts only inside
+  the tenancy it reads. A worked deployment is in
+  [`docs/deploy/provider-oci.yaml`](docs/deploy/provider-oci.yaml).
+- The conformance suite runs against it in CI, with no Oracle account, so the
+  contract is now tested against two substrates rather than one.
+
+### Changed
+
+- **Core holds no credential for reading any substrate.** `internal/infra` no
+  longer imports the Oracle SDK, `infra.Config` no longer names a compartment,
+  a load balancer or a bucket, and `OCI_COMPARTMENT_ID`, `OCI_NLB_ID`,
+  `OCI_OBJECT_STORAGE_NAMESPACE` and `OCI_BACKUP_BUCKET` move from core's
+  configuration to the provider's. The README, the glossary and
+  `docs/providers.md` drop the exception clause they had to carry.
+- **`/v0` gains `store` on the backups response.** Core cannot name the backup
+  store once it holds no substrate identifiers, so the provider that reads the
+  store says what it is called. Additive: a provider that omits it renders as
+  unknown, and the only in-tree provider that served backups is the one being
+  added here.
+- `InfraSources` no longer takes a fallback. It existed for the in-process
+  Oracle reads; there is nothing behind the providers any more.
+
 ### Announced, not yet built
 
 - **The Build provider kind will invert the contract's direction.** A Build
@@ -26,9 +53,6 @@ most releases will not be one.
 - **The conformance suite will grow a second mode.** It proves a provider by
   calling a URL, which a Build provider does not have. Until that mode exists,
   the suite is the definition of a working *Infra* provider.
-- **The Oracle reads will move out of core into an Infra provider of their
-  own** ([#11](https://github.com/sasiruLK/tinycloud-platform/issues/11)), at
-  which point core holds no cloud credentials on any substrate.
 - **There will be a Helm chart, and then possibly a CLI**
   ([#13](https://github.com/sasiruLK/tinycloud-platform/issues/13)). There is no
   way to install TinyCloud today: `scripts/bootstrap-gitops.sh` installs Argo CD
