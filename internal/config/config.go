@@ -17,14 +17,6 @@ type Config struct {
 	// dashboard whose sources are named as missing rather than an error page.
 	Providers     string
 	ProvidersFile string
-
-	// Oracle Cloud reads, kept in Core until they move out to an Infra
-	// Provider of their own. All optional and all empty by default: the
-	// published image contacts no tenancy until its operator names one.
-	OCICompartmentID          string
-	OCINetworkLoadBalancerID  string
-	OCIObjectStorageNamespace string
-	OCIBackupBucket           string
 }
 
 func Load() *Config {
@@ -49,10 +41,5 @@ func Load() *Config {
 
 		Providers:     os.Getenv("TINYCLOUD_PROVIDERS"),
 		ProvidersFile: os.Getenv("TINYCLOUD_PROVIDERS_FILE"),
-
-		OCICompartmentID:          os.Getenv("OCI_COMPARTMENT_ID"),
-		OCINetworkLoadBalancerID:  os.Getenv("OCI_NLB_ID"),
-		OCIObjectStorageNamespace: os.Getenv("OCI_OBJECT_STORAGE_NAMESPACE"),
-		OCIBackupBucket:           os.Getenv("OCI_BACKUP_BUCKET"),
 	}
 }

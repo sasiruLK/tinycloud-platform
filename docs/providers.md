@@ -2,9 +2,8 @@
 
 Everything core knows about the infrastructure an instance runs on, it learns by
 asking a **provider**: a service that holds the credentials for one substrate
-and speaks the published [`/v0` contract](../provider-contract-v0.yaml). The one
-exception is the legacy Oracle read path still linked into core, described
-below.
+and speaks the published [`/v0` contract](../provider-contract-v0.yaml). There
+is no path behind the providers — core holds no cloud credentials at all.
 
 The maintainers' own providers are not special. They are separate processes
 answering the same contract over the same HTTP, so anything they can do, a
@@ -23,6 +22,7 @@ provider you write can do.
 | Provider kind | Provider | Capabilities |
 | --- | --- | --- |
 | Infra | `kubernetes` (`cmd/provider-server`) | `instances`, `metrics`, `ingress` |
+| Infra | `oci` (`cmd/provider-server`) | `instances`, `metrics`, `alarms`, `ingress`, `backups` |
 
 The Kubernetes provider needs no cloud account: instances are the cluster's
 nodes, CPU and memory come from metrics-server when it is installed, and the
@@ -30,10 +30,13 @@ ingress address comes from the ingress controller's Service. `alarms` and
 `backups` return `501` — a cluster has no native equivalent of either, and
 reporting that honestly is what capability discovery is for.
 
-The Oracle Cloud reads are still linked into core, wired only when their
-identifiers are configured, until they move out to an Infra provider of their
-own. Nothing about a tenancy is compiled in: an unconfigured instance contacts
-no account at all.
+The Oracle Cloud provider serves every capability of the Infra kind, which
+makes it the contract's most complete implementation and the reason the contract
+is now tested against two substrates rather than one. It authenticates as the
+compute instance it runs on, so it starts only inside the tenancy it reads.
+Each of its four identifiers switches on the capabilities it can answer: supply
+only a bucket and you get a provider that serves `backups` and returns `501`
+for the rest. See [`deploy/provider-oci.yaml`](deploy/provider-oci.yaml).
 
 ## Configuring an instance's providers
 
@@ -190,11 +193,6 @@ cluster, holding your substrate's credentials. **Vet a provider like a Helm
 chart from a stranger**: read what it does, check what RBAC and secrets it
 asks for, and prefer one whose source you can read.
 
-The change is still a net improvement on what came before, where core
-authenticated to the cloud for every substrate it read: the blast radius of a
-bad provider is one substrate, and on a substrate reached only through providers
-a compromised core holds no cloud credentials at all.
-
-On an Oracle instance that is not yet true. The Oracle reads are still linked
-into core and use the identifiers the operator configures, so core there holds
-that tenancy's credentials until the path moves out to a provider of its own.
+The change is a net improvement on what came before, where core authenticated to
+the cloud itself: the blast radius of a compromised core is now no cloud
+credentials at all, and the blast radius of a bad provider is one substrate.

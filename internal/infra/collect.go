@@ -51,51 +51,25 @@ const (
 	DimTarget     = "target"
 )
 
-// Config names the resources the snapshot is assembled from. Nothing here has
-// a built-in value: an Instance's identifiers belong to whoever deployed it,
-// so an unconfigured field yields no source and a warning rather than a read
-// against somebody else's account.
+// Config is how a snapshot is assembled, not where it comes from. Naming a
+// Substrate's resources is a Provider's job: core learns which machines,
+// which load balancer and which backup store an Instance has by asking, so
+// nothing here identifies an account.
 type Config struct {
-	CompartmentID          string
-	NetworkLoadBalancerID  string
-	ObjectStorageNamespace string
-	Bucket                 string
 	// BackupPrefixes are the streams reported separately. Objects outside
-	// them still count towards the bucket totals.
+	// them still count towards the store's totals.
 	BackupPrefixes []string
 	// CallTimeout bounds every individual Capability call.
 	CallTimeout time.Duration
 }
 
-// DefaultConfig returns the configuration every Instance starts from: no
-// account identifiers, the conventional backup stream names, and a five second
-// budget per call. The published image therefore contacts nobody's tenancy
-// until its operator says which one.
+// DefaultConfig returns the configuration every Instance starts from: the
+// conventional backup stream names and a five second budget per call.
 func DefaultConfig() Config {
 	return Config{
 		BackupPrefixes: []string{"sqlite", "gitops", "coordinator"},
 		CallTimeout:    5 * time.Second,
 	}
-}
-
-// ConfigWithOverrides returns DefaultConfig with any non-empty argument
-// substituted. Absent configuration leaves the field empty, which yields a nil
-// source and a warning rather than a startup failure.
-func ConfigWithOverrides(compartmentID, nlbID, namespace, bucket string) Config {
-	cfg := DefaultConfig()
-	if compartmentID != "" {
-		cfg.CompartmentID = compartmentID
-	}
-	if nlbID != "" {
-		cfg.NetworkLoadBalancerID = nlbID
-	}
-	if namespace != "" {
-		cfg.ObjectStorageNamespace = namespace
-	}
-	if bucket != "" {
-		cfg.Bucket = bucket
-	}
-	return cfg
 }
 
 // The four types below are the Provider contract's wire types as well as the
@@ -113,6 +87,18 @@ type InstanceInfo struct {
 	MemoryGB    float64 `json:"memoryGb"`
 	FaultDomain string  `json:"faultDomain"`
 	PrivateIP   string  `json:"privateIp"`
+}
+
+// BackupListing is one Provider's view of the Instance's backup store: what
+// the store is called on that Substrate, and everything in it. Core groups the
+// objects into streams and counts the allowance spent; naming the store is the
+// Provider's, because core holds no Substrate identifiers to name it with.
+type BackupListing struct {
+	// Store is the backup location's name on its Substrate — a bucket, a
+	// volume, a path. Empty when the Provider did not say.
+	Store string `json:"store"`
+	// Objects is every object in the store, unsummarised.
+	Objects []ObjectInfo `json:"objects"`
 }
 
 // Series is the latest datapoint of one metric result series.
@@ -160,9 +146,11 @@ type (
 	IngressSource interface {
 		IngressPublicIP(ctx context.Context) (string, error)
 	}
-	// BackupSource lists the objects in the backup store.
+	// BackupSource lists the objects in the backup store, and names it.
+	// Core cannot know the store's name once it holds no Substrate
+	// identifiers, so the Provider that reads the store reports it.
 	BackupSource interface {
-		ListObjects(ctx context.Context) ([]ObjectInfo, error)
+		ListObjects(ctx context.Context) (BackupListing, error)
 	}
 )
 
@@ -205,7 +193,7 @@ type collectResult struct {
 	instances []InstanceInfo
 	alarms    []AlarmStatus
 	publicIP  string
-	objects   []ObjectInfo
+	backups   BackupListing
 
 	cpu       []Series
 	memory    []Series
@@ -318,12 +306,12 @@ func (c *Collector) Collect(ctx context.Context) *Snapshot {
 
 	if c.src.Backups != nil {
 		run(srcBackups, func(ctx context.Context) error {
-			objs, err := c.src.Backups.ListObjects(ctx)
+			listing, err := c.src.Backups.ListObjects(ctx)
 			if err != nil {
 				return err
 			}
 			res.mu.Lock()
-			res.objects = objs
+			res.backups = listing
 			res.mu.Unlock()
 			return nil
 		})
@@ -412,9 +400,9 @@ func (c *Collector) assemble(res *collectResult) *Snapshot {
 		snap.Ingress.UnhealthyBackends = maxAcrossSeries(res.unhealthy)
 	}
 
-	snap.Backups = &Backups{Bucket: c.cfg.Bucket, Streams: []Stream{}}
+	snap.Backups = &Backups{Bucket: res.backups.Store, Streams: []Stream{}}
 	if res.ok[srcBackups] {
-		snap.Backups = summariseBackups(c.cfg.Bucket, c.cfg.BackupPrefixes, res.objects)
+		snap.Backups = summariseBackups(res.backups.Store, c.cfg.BackupPrefixes, res.backups.Objects)
 		size := *snap.Backups.SizeBytes
 		snap.Capacity.ObjectStorageUsedBytes = &size
 	}

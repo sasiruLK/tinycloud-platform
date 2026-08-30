@@ -22,6 +22,7 @@ import (
 
 	"github.com/sasiruLK/tinycloud-platform/internal/provider"
 	k8sprovider "github.com/sasiruLK/tinycloud-platform/internal/provider/kubernetes"
+	ociprovider "github.com/sasiruLK/tinycloud-platform/internal/provider/oci"
 )
 
 func main() {
@@ -45,6 +46,8 @@ func main() {
 	switch name {
 	case "kubernetes":
 		served, err = newKubernetesProvider()
+	case "oci":
+		served, err = newOCIProvider()
 	default:
 		err = fmt.Errorf("this build has no provider named %q", name)
 	}
@@ -103,6 +106,22 @@ func newKubernetesProvider() (provider.Infra, error) {
 		k8sprovider.NewRESTNodeMetrics(clientset.CoreV1().RESTClient()),
 		k8sprovider.Options{IngressService: os.Getenv("INGRESS_SERVICE")},
 	)
+}
+
+// newOCIProvider builds the Provider for an Oracle Cloud tenancy. It
+// authenticates as the instance it runs on, so it starts only inside that
+// tenancy and only where an IAM policy covers its dynamic group.
+//
+// These four identifiers were core's until the Oracle reads moved out here.
+// Each switches on the Capabilities it can answer, so a tenancy that supplies
+// only a bucket serves backups and honestly returns 501 for the rest.
+func newOCIProvider() (provider.Infra, error) {
+	return ociprovider.NewFromInstancePrincipal(ociprovider.Config{
+		CompartmentID:          os.Getenv("OCI_COMPARTMENT_ID"),
+		NetworkLoadBalancerID:  os.Getenv("OCI_NLB_ID"),
+		ObjectStorageNamespace: os.Getenv("OCI_OBJECT_STORAGE_NAMESPACE"),
+		Bucket:                 os.Getenv("OCI_BACKUP_BUCKET"),
+	})
 }
 
 func clusterConfig() (*rest.Config, error) {

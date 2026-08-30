@@ -39,8 +39,11 @@ type ingressBody struct {
 	PublicIP string `json:"publicIp"`
 }
 
-// backupsBody answers GET /v0/infra/backups.
+// backupsBody answers GET /v0/infra/backups. `store` names the backup location
+// on the Provider's Substrate — a bucket, a volume, a path. Core has no
+// Substrate identifiers of its own to name it with, so the Provider says.
 type backupsBody struct {
+	Store   string             `json:"store"`
 	Objects []infra.ObjectInfo `json:"objects"`
 }
 

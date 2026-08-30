@@ -68,7 +68,7 @@ type Infra interface {
 	Metric(ctx context.Context, metric string, window time.Duration) ([]infra.Series, error)
 	Alarms(ctx context.Context) ([]infra.AlarmStatus, error)
 	IngressAddress(ctx context.Context) (string, error)
-	BackupObjects(ctx context.Context) ([]infra.ObjectInfo, error)
+	BackupObjects(ctx context.Context) (infra.BackupListing, error)
 }
 
 // ErrNotImplemented is what a Capability that this Provider does not serve

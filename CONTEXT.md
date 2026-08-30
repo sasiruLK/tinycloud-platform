@@ -14,11 +14,13 @@ The platform as a whole: core and providers together.
 _Avoid_: the platform, the lab, the cluster
 
 **Core**:
-The vendor-neutral services — API, build coordinator, UI. Speaks to substrates
-through providers, and holds no cloud credentials **except** the legacy Oracle
-read path still linked into it, which is wired only when an operator supplies
-that tenancy's identifiers and is scheduled to move out to a provider of its
-own. Nothing about a tenancy is compiled in.
+The vendor-neutral services — API, build coordinator, UI. Reads every substrate
+through providers and holds no credential to read one.
+
+The build coordinator can ship build logs to OCI Logging, which needs an Oracle
+credential when an operator turns it on. That is telemetry leaving core, not
+core reading a substrate, and it is the one cloud credential core can be
+configured to hold.
 _Avoid_: the server, the backend, the control plane
 
 **Instance**:

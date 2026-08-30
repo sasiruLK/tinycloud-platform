@@ -88,28 +88,16 @@ func main() {
 		log.Printf("Provider %s (%s) at %s", p.Name, p.Kind, p.BaseURL)
 	}
 
-	infraCfg := infra.ConfigWithOverrides(
-		cfg.OCICompartmentID,
-		cfg.OCINetworkLoadBalancerID,
-		cfg.OCIObjectStorageNamespace,
-		cfg.OCIBackupBucket,
-	)
-
 	// Sources are resolved lazily on the first refresh, so a Provider that is
-	// not up yet — or an Oracle credential that cannot be resolved off an OCI
-	// instance — never keeps the API from starting. /v1/infra explains itself
+	// not up yet never keeps the API from starting. /v1/infra explains itself
 	// and every other route is unaffected.
-	infraCache := infra.NewDefaultCache(infraCfg, func(ctx context.Context) (infra.Sources, error) {
-		// The Oracle Cloud reads still linked into Core fill any Capability no
-		// Provider serves, so an Instance already running on Oracle loses
-		// nothing the day it adopts Providers. They are wired only when their
-		// identifiers are configured.
-		fallback, err := infra.NewSources(infraCfg)
-		if err != nil {
-			log.Printf("[WARN] Oracle Cloud reads unavailable: %v", err)
-			fallback = infra.Sources{}
-		}
-		return provider.InfraSources(ctx, providers, fallback), nil
+	//
+	// There is no fallback behind the Providers any more. Core reads every
+	// Substrate the same way, over the contract, and a Capability no configured
+	// Provider serves is a named gap on the dashboard rather than a read core
+	// performs itself.
+	infraCache := infra.NewDefaultCache(infra.DefaultConfig(), func(ctx context.Context) (infra.Sources, error) {
+		return provider.InfraSources(ctx, providers), nil
 	})
 	infraCache.Prime()
 

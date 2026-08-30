@@ -18,7 +18,7 @@ type (
 	fakeMetrics   func(context.Context, string, time.Duration) ([]Series, error)
 	fakeAlarms    func(context.Context) ([]AlarmStatus, error)
 	fakeIngress   func(context.Context) (string, error)
-	fakeBackups   func(context.Context) ([]ObjectInfo, error)
+	fakeBackups   func(context.Context) (BackupListing, error)
 )
 
 func (f fakeInstances) ListInstances(ctx context.Context) ([]InstanceInfo, error) { return f(ctx) }
@@ -27,7 +27,7 @@ func (f fakeMetrics) QueryMetric(ctx context.Context, metric string, w time.Dura
 }
 func (f fakeAlarms) ListAlarmStatuses(ctx context.Context) ([]AlarmStatus, error) { return f(ctx) }
 func (f fakeIngress) IngressPublicIP(ctx context.Context) (string, error)         { return f(ctx) }
-func (f fakeBackups) ListObjects(ctx context.Context) ([]ObjectInfo, error)       { return f(ctx) }
+func (f fakeBackups) ListObjects(ctx context.Context) (BackupListing, error)      { return f(ctx) }
 
 var errBoom = errors.New("NotAuthorizedOrNotFound")
 
@@ -95,12 +95,15 @@ func healthySources(t *testing.T) Sources {
 			}, nil
 		}),
 		Ingress: fakeIngress(func(context.Context) (string, error) { return "129.158.225.37", nil }),
-		Backups: fakeBackups(func(context.Context) ([]ObjectInfo, error) {
-			return []ObjectInfo{
-				{Name: "sqlite/2026-08-15.db", Size: 1000, Modified: testTime(t, "2026-08-15T18:39:38Z")},
-				{Name: "sqlite/2026-08-14.db", Size: 900, Modified: testTime(t, "2026-08-14T18:39:38Z")},
-				{Name: "gitops/2026-08-15.tar", Size: 100, Modified: testTime(t, "2026-08-15T06:00:00Z")},
-				{Name: "stray.txt", Size: 7, Modified: testTime(t, "2026-08-01T00:00:00Z")},
+		Backups: fakeBackups(func(context.Context) (BackupListing, error) {
+			return BackupListing{
+				Store: "tinycloud-backups",
+				Objects: []ObjectInfo{
+					{Name: "sqlite/2026-08-15.db", Size: 1000, Modified: testTime(t, "2026-08-15T18:39:38Z")},
+					{Name: "sqlite/2026-08-14.db", Size: 900, Modified: testTime(t, "2026-08-14T18:39:38Z")},
+					{Name: "gitops/2026-08-15.tar", Size: 100, Modified: testTime(t, "2026-08-15T06:00:00Z")},
+					{Name: "stray.txt", Size: 7, Modified: testTime(t, "2026-08-01T00:00:00Z")},
+				},
 			}, nil
 		}),
 	}
@@ -109,7 +112,6 @@ func healthySources(t *testing.T) Sources {
 func testCollector(t *testing.T, src Sources) *Collector {
 	t.Helper()
 	cfg := DefaultConfig()
-	cfg.Bucket = "tinycloud-backups"
 	cfg.CallTimeout = time.Second
 	c := NewCollector(cfg, src)
 	c.nowFunc = func() time.Time { return testTime(t, "2026-08-15T19:00:00Z") }
@@ -237,14 +239,20 @@ func TestCollectSurvivesPartialFailure(t *testing.T) {
 		{
 			name: "bucket forbidden",
 			break_: func(s *Sources) {
-				s.Backups = fakeBackups(func(context.Context) ([]ObjectInfo, error) { return nil, errBoom })
+				s.Backups = fakeBackups(func(context.Context) (BackupListing, error) { return BackupListing{}, errBoom })
 			},
 			warning: "backups",
 			check: func(t *testing.T, snap *Snapshot) {
 				// The section survives so the dashboard can render it; the
 				// numbers inside it are null, not zero.
 				require.NotNil(t, snap.Backups)
-				assert.Equal(t, "tinycloud-backups", snap.Backups.Bucket)
+				// The store's name arrives with its contents, from the
+				// Provider that read them — core holds no Substrate
+				// identifiers to name it with. A listing that failed
+				// therefore leaves the name unknown too, on the first
+				// refresh. After any successful read the cache serves the
+				// last good snapshot, name included, flagged stale.
+				assert.Empty(t, snap.Backups.Bucket)
 				assert.Nil(t, snap.Backups.ObjectCount)
 				assert.Nil(t, snap.Backups.SizeBytes)
 				assert.Empty(t, snap.Backups.Streams)
@@ -361,7 +369,7 @@ func TestSnapshotJSONShape(t *testing.T) {
 func TestSnapshotJSONNullsMissingMetrics(t *testing.T) {
 	src := healthySources(t)
 	src.Metrics = fakeMetrics(func(context.Context, string, time.Duration) ([]Series, error) { return nil, errBoom })
-	src.Backups = fakeBackups(func(context.Context) ([]ObjectInfo, error) { return nil, errBoom })
+	src.Backups = fakeBackups(func(context.Context) (BackupListing, error) { return BackupListing{}, errBoom })
 
 	raw, err := json.Marshal(testCollector(t, src).Collect(context.Background()))
 	require.NoError(t, err)

@@ -240,8 +240,8 @@ func (p *Provider) Alarms(context.Context) ([]infra.AlarmStatus, error) {
 }
 
 // BackupObjects is not implemented: a cluster has no backup store of its own.
-func (p *Provider) BackupObjects(context.Context) ([]infra.ObjectInfo, error) {
-	return nil, provider.ErrNotImplemented
+func (p *Provider) BackupObjects(context.Context) (infra.BackupListing, error) {
+	return infra.BackupListing{}, provider.ErrNotImplemented
 }
 
 // IngressAddress returns the external address of the ingress controller's

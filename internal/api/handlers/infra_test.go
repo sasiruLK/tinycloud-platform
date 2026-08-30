@@ -94,9 +94,14 @@ func (f fakeProvider) start(t *testing.T) string {
 
 // providerEntry is how an operator lists a Provider in configuration.
 func providerEntry(baseURL string) []provider.Entry {
+	return providerEntryNamed("fake", baseURL)
+}
+
+// providerEntryNamed is providerEntry for a test that configures more than one.
+func providerEntryNamed(name, baseURL string) []provider.Entry {
 	return []provider.Entry{{
 		Kind:    provider.KindInfra,
-		Name:    "fake",
+		Name:    name,
 		BaseURL: baseURL,
 		Token:   testToken,
 	}}
@@ -107,11 +112,10 @@ func providerEntry(baseURL string) []provider.Entry {
 func infraCache(t *testing.T, baseURL string, opts infra.CacheOptions) *infra.Cache {
 	t.Helper()
 	cfg := infra.DefaultConfig()
-	cfg.Bucket = "tinycloud-backups"
 	cfg.CallTimeout = 200 * time.Millisecond
 
 	return infra.NewCache(func(ctx context.Context) (*infra.Collector, error) {
-		src := provider.InfraSources(ctx, providerEntry(baseURL), infra.Sources{})
+		src := provider.InfraSources(ctx, providerEntry(baseURL))
 		return infra.NewCollector(cfg, src), nil
 	}, opts)
 }
@@ -333,35 +337,41 @@ func TestGetInfraSurvivesProviderDegradation(t *testing.T) {
 }
 
 // stubAlarms stands in for the Oracle Cloud reads still linked into Core: a
-// source an operator configured, which must keep working.
-type stubAlarms []infra.AlarmStatus
+// A Provider that is down when core wires up its sources must not take a
+// Capability away from one that is answering. Nobody knows what an unreachable
+// Provider serves, so it cannot outrank a Provider that said.
+//
+// This used to be tested against the in-process Oracle reads behind the
+// Providers. There is no behind any more — core reads every Substrate through
+// the contract — so the property is tested where it now lives, between two
+// Providers.
+func TestGetInfraPrefersAProviderThatAnsweredOverOneThatIsDown(t *testing.T) {
+	down := httptest.NewServer(http.NotFoundHandler())
+	unreachable := down.URL
+	down.Close()
 
-func (s stubAlarms) ListAlarmStatuses(context.Context) ([]infra.AlarmStatus, error) {
-	return []infra.AlarmStatus(s), nil
-}
-
-// A Provider that is down when Core wires up its sources must not take a
-// Capability away from a source that works. Nobody knows what an unreachable
-// Provider serves, so it cannot outrank one that is answering.
-func TestGetInfraKeepsConfiguredSourcesWhenAProviderIsUnreachable(t *testing.T) {
-	server := httptest.NewServer(http.NotFoundHandler())
-	unreachable := server.URL
-	server.Close()
+	working := fakeProvider{
+		capabilities: []string{"alarms"},
+		alarms: func() (int, string) {
+			return http.StatusOK, `{"alarms":[{"name":"site-unreachable","severity":"CRITICAL","status":"OK"}]}`
+		},
+	}.start(t)
 
 	cfg := infra.DefaultConfig()
 	cfg.CallTimeout = 200 * time.Millisecond
 
+	entries := append(providerEntryNamed("down", unreachable), providerEntryNamed("working", working)...)
+
 	cache := readyCache(t, infra.NewCache(func(ctx context.Context) (*infra.Collector, error) {
-		fallback := infra.Sources{Alarms: stubAlarms{{Name: "site-unreachable", Severity: "CRITICAL", Status: "OK"}}}
-		return infra.NewCollector(cfg, provider.InfraSources(ctx, providerEntry(unreachable), fallback)), nil
+		return infra.NewCollector(cfg, provider.InfraSources(ctx, entries)), nil
 	}, infra.CacheOptions{}))
 
 	data := getInfra(t, cache)
 
 	alarms := data["alarms"].([]any)
-	require.Len(t, alarms, 1, "the alarms an operator configured still arrive")
+	require.Len(t, alarms, 1, "the Provider that answered still serves the Capability it declared")
 	assert.Equal(t, "site-unreachable", alarms[0].(map[string]any)["name"])
-	// The Provider is still named against the Capabilities nothing else covers.
+	// The unreachable Provider is still named against what nothing else covers.
 	assertWarns(t, warningsOf(t, data), "instances: ")
 }
 
@@ -416,7 +426,7 @@ func TestGetInfraServesLastGoodSnapshotWhenProviderGoesDown(t *testing.T) {
 // dashboard still renders, naming what it does not have.
 func TestGetInfraRendersWithNoProviderConfigured(t *testing.T) {
 	cache := readyCache(t, infra.NewCache(func(ctx context.Context) (*infra.Collector, error) {
-		return infra.NewCollector(infra.DefaultConfig(), provider.InfraSources(ctx, nil, infra.Sources{})), nil
+		return infra.NewCollector(infra.DefaultConfig(), provider.InfraSources(ctx, nil)), nil
 	}, infra.CacheOptions{}))
 
 	data := getInfra(t, cache)

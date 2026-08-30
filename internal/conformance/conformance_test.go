@@ -8,6 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/monitoring"
+	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +20,7 @@ import (
 	"github.com/sasiruLK/tinycloud-platform/internal/conformance"
 	"github.com/sasiruLK/tinycloud-platform/internal/provider"
 	k8sprovider "github.com/sasiruLK/tinycloud-platform/internal/provider/kubernetes"
+	ociprovider "github.com/sasiruLK/tinycloud-platform/internal/provider/oci"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,6 +68,63 @@ func TestKubernetesProviderIsConformant(t *testing.T) {
 	assert.Equal(t, conformance.NotImplemented, outcomes["alarms"])
 	assert.Equal(t, conformance.NotImplemented, outcomes["backups"])
 	assert.Equal(t, conformance.Pass, outcomes["authentication"])
+}
+
+// The Oracle Cloud Provider against the published contract, driven by a fake
+// SDK so that this runs in CI with no Oracle account. It is the contract's
+// second Substrate: the Kubernetes Provider proved the contract could be served
+// without a cloud, and this proves the cloud the project was built on is served
+// the same way as any other.
+func TestOCIProviderIsConformant(t *testing.T) {
+	p, err := ociprovider.New(ociprovider.Config{
+		CompartmentID:          "ocid1.tenancy.oc1..example",
+		NetworkLoadBalancerID:  "ocid1.networkloadbalancer.oc1..example",
+		ObjectStorageNamespace: "example",
+		Bucket:                 "tinycloud-backups",
+	}, ociprovider.Clients{
+		Compute: emptyOracle{}, Vnic: emptyOracle{}, Monitoring: emptyOracle{},
+		LoadBalancer: emptyOracle{}, ObjectStorage: emptyOracle{},
+	})
+	require.NoError(t, err)
+
+	report := run(t, provider.NewServer(p, provider.StaticToken(token)))
+
+	require.True(t, report.Passed(), "the OCI provider is not conformant:\n%s", report)
+	assert.Equal(t, "oci", report.Provider)
+
+	// A fully configured tenancy declares every Capability of the Infra kind,
+	// which is what makes this the contract's most complete implementation.
+	assert.Equal(t, []string{"alarms", "backups", "ingress", "instances", "metrics"}, report.Declared)
+	for _, result := range report.Results {
+		assert.Equal(t, conformance.Pass, result.Outcome, result.Capability)
+	}
+}
+
+// emptyOracle is a tenancy that exists and holds nothing. Every call succeeds
+// and returns no items, which is what the contract's shape rules are checked
+// against: empty collections must still serialise as arrays.
+type emptyOracle struct{}
+
+func (emptyOracle) ListInstances(context.Context, core.ListInstancesRequest) (core.ListInstancesResponse, error) {
+	return core.ListInstancesResponse{}, nil
+}
+func (emptyOracle) ListVnicAttachments(context.Context, core.ListVnicAttachmentsRequest) (core.ListVnicAttachmentsResponse, error) {
+	return core.ListVnicAttachmentsResponse{}, nil
+}
+func (emptyOracle) GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error) {
+	return core.GetVnicResponse{}, nil
+}
+func (emptyOracle) SummarizeMetricsData(context.Context, monitoring.SummarizeMetricsDataRequest) (monitoring.SummarizeMetricsDataResponse, error) {
+	return monitoring.SummarizeMetricsDataResponse{}, nil
+}
+func (emptyOracle) ListAlarmsStatus(context.Context, monitoring.ListAlarmsStatusRequest) (monitoring.ListAlarmsStatusResponse, error) {
+	return monitoring.ListAlarmsStatusResponse{}, nil
+}
+func (emptyOracle) GetNetworkLoadBalancer(context.Context, networkloadbalancer.GetNetworkLoadBalancerRequest) (networkloadbalancer.GetNetworkLoadBalancerResponse, error) {
+	return networkloadbalancer.GetNetworkLoadBalancerResponse{}, nil
+}
+func (emptyOracle) ListObjects(context.Context, objectstorage.ListObjectsRequest) (objectstorage.ListObjectsResponse, error) {
+	return objectstorage.ListObjectsResponse{}, nil
 }
 
 // The suite has to fail a Provider that violates the contract, or passing it

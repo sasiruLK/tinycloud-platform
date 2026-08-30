@@ -8,14 +8,9 @@ The reference substrate is an Oracle Cloud Always Free tenancy — four instance
 four ARM cores between them — and that constraint is the point rather than an
 apology. Core depends on no cloud vendor: every vendor-specific capability is
 reached through a **provider**, a service holding the credentials for one
-substrate.
-
-One exception, stated here rather than discovered later: **the Oracle reads are
-still linked into core**, wired only when an operator supplies that tenancy's
-identifiers. Nothing about a tenancy is compiled in, and an unconfigured
-instance contacts no account at all — but until that path moves out to a
-provider of its own, core on an Oracle instance does hold Oracle credentials.
-Moving it is [issue #11](https://github.com/sasiruLK/tinycloud-platform/issues/11).
+substrate. Core holds none, on any substrate — including the one this project
+was built on, which is reached through the Oracle Cloud provider exactly as
+anybody else's would be.
 
 - **Glossary and domain language**: [`CONTEXT.md`](CONTEXT.md)
 - **Changelog**: [`CHANGELOG.md`](CHANGELOG.md)
@@ -78,6 +73,7 @@ oauth2-proxy fronts the API for any OIDC provider.
 | `internal/infra` | The infrastructure snapshot: collector, cache, domain types |
 | `internal/provider` | The provider client, server, and configuration |
 | `ui/` | The console (Vite, TypeScript) |
+| `internal/provider/oci` | The Oracle Cloud infra provider |
 | `docs/history/` | Superseded plans and execution logs, kept as a record |
 
 An instance's deployment lives in its own GitOps repository, not here.

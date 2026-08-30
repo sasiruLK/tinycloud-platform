@@ -1,0 +1,209 @@
+# The Oracle Cloud Infra Provider: a worked example.
+#
+# It runs provider-server from the same image as core, as its own Deployment,
+# and it is the component that holds this instance's Oracle credentials. Core
+# holds none — that is the whole point of moving these reads out here.
+#
+# Authentication is by instance principal: the pod authenticates as the OCI
+# compute instance it is scheduled on, reading the credential from the metadata
+# service at 169.254.169.254. There is no key file and no secret to rotate,
+# which is why the provider must run on a node inside the tenancy it reads, and
+# why it will refuse to start anywhere else.
+#
+# Before this works, in Oracle Cloud:
+#
+#   1. A dynamic group matching the instances this pod can be scheduled on, e.g.
+#      ALL {instance.compartment.id = 'ocid1.tenancy.oc1..your-tenancy'}
+#   2. A policy granting that group only what the provider reads:
+#      Allow dynamic-group tinycloud-nodes to read instance-family in tenancy
+#      Allow dynamic-group tinycloud-nodes to read metrics in tenancy
+#      Allow dynamic-group tinycloud-nodes to read alarms in tenancy
+#      Allow dynamic-group tinycloud-nodes to read network-load-balancers in tenancy
+#      Allow dynamic-group tinycloud-nodes to read objects in tenancy
+#
+# Each identifier below switches on the capabilities it can answer. Supply only
+# a bucket and you get a provider that serves backups and honestly returns 501
+# for the rest, which core renders as named warnings rather than failures.
+#
+# Adapt the namespace, the image tag and the four identifiers to your instance,
+# then commit it to your instance's GitOps repository. This file is an example,
+# not a manifest this project applies for you.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tinycloud-provider-oci
+  namespace: tinycloud
+---
+# The token core authenticates with. Generate it with something like
+# `openssl rand -hex 32`, and in a real instance keep it in your secret store
+# rather than in git. Both sides read it from a mounted file per request, so
+# replacing this Secret rotates the credential without redeploying either.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tinycloud-provider-oci-token
+  namespace: tinycloud
+type: Opaque
+stringData:
+  token: replace-me
+---
+# The four identifiers naming what this provider reads. None is secret — they
+# are names, useless without the IAM policy above — but they are this account's,
+# so they belong in your instance's repository rather than in an image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tinycloud-provider-oci
+  namespace: tinycloud
+data:
+  OCI_COMPARTMENT_ID: ocid1.tenancy.oc1..replace-me
+  OCI_NLB_ID: ocid1.networkloadbalancer.oc1.iad.replace-me
+  OCI_OBJECT_STORAGE_NAMESPACE: replace-me
+  OCI_BACKUP_BUCKET: tinycloud-backups
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tinycloud-provider-oci
+  namespace: tinycloud
+  labels:
+    app.kubernetes.io/name: tinycloud-provider-oci
+    app.kubernetes.io/component: provider
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tinycloud-provider-oci
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tinycloud-provider-oci
+        app.kubernetes.io/component: provider
+    spec:
+      serviceAccountName: tinycloud-provider-oci
+      containers:
+        - name: provider
+          image: ghcr.io/sasirulk/tinycloud-platform-api:latest
+          command: ["/provider-server"]
+          env:
+            - name: PROVIDER_KIND
+              value: infra
+            - name: PROVIDER_NAME
+              value: oci
+            - name: PROVIDER_TOKEN_FILE
+              value: /etc/tinycloud/provider/token
+            - name: PORT
+              value: "9090"
+          envFrom:
+            - configMapRef:
+                name: tinycloud-provider-oci
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: token
+              mountPath: /etc/tinycloud/provider
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: token
+          secret:
+            secretName: tinycloud-provider-oci-token
+            items:
+              - key: token
+                path: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tinycloud-provider-oci
+  namespace: tinycloud
+spec:
+  selector:
+    app.kubernetes.io/name: tinycloud-provider-oci
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+---
+# Default deny, then core only. This provider can read the tenancy; nothing
+# else in the cluster should be able to open a connection to it at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tinycloud-provider-oci
+  namespace: tinycloud
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tinycloud-provider-oci
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tinycloud-api
+      ports:
+        - protocol: TCP
+          port: 9090
+---
+# Core's side of the wiring, with both providers listed.
+#
+# A capability goes to the first provider that declares it, so order matters
+# where two providers serve the same one. Listing OCI first on an Oracle
+# instance keeps the dashboard showing the four machines Terraform manages
+# rather than the two Kubernetes nodes running on them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tinycloud-providers
+  namespace: tinycloud
+data:
+  providers.json: |
+    [
+      {
+        "kind": "infra",
+        "name": "oci",
+        "baseUrl": "http://tinycloud-provider-oci.tinycloud.svc.cluster.local:9090",
+        "tokenFile": "/etc/tinycloud/provider-tokens/oci/token"
+      },
+      {
+        "kind": "infra",
+        "name": "kubernetes",
+        "baseUrl": "http://tinycloud-provider-kubernetes.tinycloud.svc.cluster.local:9090",
+        "tokenFile": "/etc/tinycloud/provider-tokens/kubernetes/token"
+      }
+    ]
+# Add to the core Deployment, alongside the kubernetes provider's mounts:
+#
+#   volumeMounts:
+#     - name: provider-token-oci
+#       mountPath: /etc/tinycloud/provider-tokens/oci
+#       readOnly: true
+#   volumes:
+#     - name: provider-token-oci
+#       secret:
+#         secretName: tinycloud-provider-oci-token
+#         items:
+#           - key: token
+#             path: token

@@ -203,15 +203,16 @@ func (s *Server) backups(w http.ResponseWriter, r *http.Request) {
 	if !allowGet(w, r) {
 		return
 	}
-	list, err := s.provider.BackupObjects(r.Context())
+	listing, err := s.provider.BackupObjects(r.Context())
 	if err != nil {
 		s.writeFailure(w, CapabilityBackups, err)
 		return
 	}
-	if list == nil {
-		list = []infra.ObjectInfo{}
+	objects := listing.Objects
+	if objects == nil {
+		objects = []infra.ObjectInfo{}
 	}
-	writeJSON(w, http.StatusOK, backupsBody{Objects: list})
+	writeJSON(w, http.StatusOK, backupsBody{Store: listing.Store, Objects: objects})
 }
 
 // writeFailure maps an implementation's error onto the contract: a Capability
